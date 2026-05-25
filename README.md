@@ -11,24 +11,25 @@ This version has been upgraded to align **1:1 with Unreal Engine's PCG Node Refe
 
 ## 🎨 Gallery & Showcases
 
-### The Modern Graph Editor UI
-Enjoy a highly polished, responsive visual editing experience with custom-themed HSL-colored nodes, grid shader backdrops, smooth connection rendering, and dynamic inspector sidebars.
+### 1. Sampling Meshes (Discarding Hard Edges)
+Distribute points across the faces of a 3D Mesh (e.g. the letter "B") while optionally pruning points near hard edges.
+![Sampling Mesh](demo/addons/flow_nodes_editor/doc/demo_sample_mesh.png)
 
-![Graph Styling & Zoom](demo/addons/flow_nodes_editor/doc/graph_styling.png)
+### 2. Random Subscenes Distribution (Forests & Paths)
+Distribute different subscenes randomly along curves and paths using attributes, custom rotation-alignment filters, and scene scanners.
+![Random Subscenes](demo/addons/flow_nodes_editor/doc/demo_random_subscenes.png)
 
-### 1:1 Unreal Engine Category Organization
-The Search-and-Add node menu has been restructured into standardized, clean categories matching Unreal PCG.
+### 3. Unified Filters & Category Popup
+Browse nodes structured into standardized categories matching Unreal PCG. Select filters such as `Filter Data by Attribute`, `Filter Data by Tag`, and `Filter Data by Type`.
+![Filters](demo/addons/flow_nodes_editor/doc/demo_filter.png)
 
-| Main Categories Menu | Control Flow Submenu |
-| --- | --- |
-| ![Categories](demo/addons/flow_nodes_editor/doc/popup_categories.png) | ![Control Flow](demo/addons/flow_nodes_editor/doc/popup_control_flow.png) |
+### 4. Proximity Sampling & Distance to Density
+Sample points and scale their density values smoothly based on their distance/proximity to curves or splines.
+![Distance to Density](demo/addons/flow_nodes_editor/doc/demo_distance.png)
 
-### Procedural Forest and Object Distribution
-Distribute subscenes randomly along curves and paths using attributes, custom rotation-alignment filters, and scene scanners.
-
-| The Flow Graph | Evaluated 3D Result |
-| --- | --- |
-| ![Node Editor in Action](demo/addons/flow_nodes_editor/doc/demo_random_subscenes.png) | ![Ran Scene in 3D](demo/addons/flow_nodes_editor/doc/game_random_subscenes.png) |
+### 5. Nested Subgraphs & Selection Collapse
+Create nested graphs and easily collapse selected nodes into a reusable Subgraph.
+![Subgraph Collapse](demo/addons/flow_nodes_editor/doc/demo_subgraph_popup.png)
 
 ---
 
