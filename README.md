@@ -35,6 +35,10 @@ Create nested graphs and easily collapse selected nodes into a reusable Subgraph
 Generate complex procedural architecture such as helical towers. Combines curve sampling with coordinate transforms, relative lintel placement, and duplicate scatter operations to create debris and rubble.
 ![Helical Colonnade](demo/addons/flow_nodes_editor/doc/demo_flashy_colonnade.png)
 
+### 7. Fall Guys Hexagons & Spawn Nodes
+Generate dynamic gameplay platforms such as the multi-colored hexagon grid inspired by Fall Guys. Use the new **Random Color** node to assign random color attributes (e.g. filtered to a specific color palette) and the **Spawn Nodes** node to instantiate custom Godot engine nodes (like `OmniLight3D` or `VoxelGI`) at each point's coordinates to illuminate and decorate the geometry in real-time.
+![Fall Guys Hexagons & Spawn Nodes](demo/addons/flow_nodes_editor/doc/demo_spawn_nodes.png)
+
 ---
 
 ## 🚀 Key Features
@@ -45,6 +49,8 @@ Generate complex procedural architecture such as helical towers. Combines curve 
   * Math operations, custom expressions, and reductions.
   * Tagging, attribute manipulation, and boolean data filters.
   * Raycasting, collision setup, and spatial queries.
+  * Spawning of raw engine node classes (`OmniLight3D`, `VoxelGIProbe`, etc.) with point attribute mapping.
+  * Random HSV or custom-palette color generation.
 * **Advanced Subgraphs & Loops**: Seamlessly nest graphs inside other graphs with local parameters, custom outputs, and array loops.
 * **Core Tagging Support**: A dedicated `tags` property (`PackedStringArray`) inside data elements for advanced tag-based filtering.
 * **Live 3D Debug Overlay**: Direct 3D viewport visualizations showing point positions, density gradients, scale, and rotations.
@@ -81,6 +87,15 @@ PCGODOT organizes nodes according to the official Unreal Engine PCG structure:
 * **Duplicate Point**: Multiplies points with custom offsets.
 * **Density Remap**: Modulates point density values using curve remapping.
 * **Distance to Density**: Scales point density based on proximity to other objects.
+
+### 🏷️ Metadata & Attributes
+* **Random Color**: Generates random colors for each point (individually or from a curated palette).
+* **Add/Remove Attribute**: Dynamically adds or removes custom point attributes.
+* **Match and Set**: Sets attributes by matching values.
+
+### 📦 Assets & Spawning
+* **Spawn Nodes**: Instantiates raw Godot nodes (e.g. `OmniLight3D`, `VoxelGI`) at point locations, transferring attributes directly to node properties.
+* **Spawn Meshes / Scenes**: Places MultiMesh instances or scene instances on points.
 
 ---
 
