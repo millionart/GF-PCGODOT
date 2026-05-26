@@ -60,7 +60,7 @@ data = {
 "settings": {
 "random_seed": 6021,
 "randomize_scene_variants": true,
-"scene_variant_weights": [7.0, 1.4, 1.0, 0.8, 0.35, 0.35, 0.25],
+"scene_variant_weights": [7.0, 1.4, 1.0, 0.8, 0.35, 0.9, 0.6],
 "scene_variants": [ExtResource("1_yhwsy"), ExtResource("2_pmi3q"), ExtResource("3_w0xid"), ExtResource("4_8t357"), ExtResource("5_vu2vv"), ExtResource("6_8t357"), ExtResource("7_vu2vv")]
 },
 "show_disconnected_inputs": false,

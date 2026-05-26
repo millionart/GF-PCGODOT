@@ -25,7 +25,7 @@ data = {
 "from_node": &"input_edges",
 "from_port": 0,
 "keep_alive": false,
-"to_node": &"select_banners",
+"to_node": &"orient_edges_from_normals",
 "to_port": 0
 }, {
 "from_node": &"banner_offsets",
@@ -34,7 +34,7 @@ data = {
 "to_node": &"spawn_banners",
 "to_port": 0
 }, {
-"from_node": &"input_edges",
+"from_node": &"orient_edges_from_normals",
 "from_port": 0,
 "keep_alive": false,
 "to_node": &"select_wall_decor",
@@ -52,7 +52,7 @@ data = {
 "to_node": &"spawn_wall_decor",
 "to_port": 0
 }, {
-"from_node": &"input_edges",
+"from_node": &"orient_edges_from_normals",
 "from_port": 0,
 "keep_alive": false,
 "to_node": &"select_doors",
@@ -74,6 +74,12 @@ data = {
 "from_port": 0,
 "keep_alive": false,
 "to_node": &"banner_offsets",
+"to_port": 0
+}, {
+"from_node": &"orient_edges_from_normals",
+"from_port": 0,
+"keep_alive": false,
+"to_node": &"select_banners",
 "to_port": 0
 }],
 "min_pos": Vector2(0, 40),
@@ -124,7 +130,7 @@ data = {
 "disabled": false,
 "inspect_enabled": false,
 "random_seed": 2751,
-"ratio": 0.045,
+"ratio": 0.08,
 "title": "Select Points",
 "trace": false,
 "weight_name": ""
@@ -217,6 +223,35 @@ data = {
 "template": "input"
 }, {
 "args_port": {
+"In": {
+"connected": true,
+"port": 0
+}
+},
+"name": &"orient_edges_from_normals",
+"position": Vector2(150, 120),
+"settings": {
+"axis": "z",
+"debug_bulk": 0,
+"debug_color": Color(1, 1, 1, 1),
+"debug_enabled": false,
+"debug_mode": 0,
+"debug_modulate_by": "",
+"debug_output": 0,
+"debug_scale": 1.0,
+"disabled": false,
+"inspect_enabled": false,
+"random_seed": 2371002971,
+"title": "Build Rotation From Up Vector",
+"trace": false,
+"up_vector_attribute": "boundary_normal",
+"up_vector_constant": Vector3(0, 1, 0),
+"use_constant": false
+},
+"show_disconnected_inputs": false,
+"template": "build_rotation_from_up"
+}, {
+"args_port": {
 "Anchors": {
 "connected": true,
 "port": 0
@@ -240,7 +275,7 @@ data = {
 "labels": Array[String](["door"]),
 "local_space": true,
 "offset_index_attribute": "offset_index",
-"offsets": Array[Vector3]([Vector3(0, 0, -0.62)]),
+"offsets": Array[Vector3]([Vector3(0, 0, -0.52)]),
 "parent_index_attribute": "parent_index",
 "random_seed": 3207323691,
 "rotations": Array[Vector3]([Vector3(0, 0, 0)]),
@@ -276,7 +311,7 @@ data = {
 "labels": Array[String](["wall_decor"]),
 "local_space": true,
 "offset_index_attribute": "offset_index",
-"offsets": Array[Vector3]([Vector3(0, 1.35, -0.48)]),
+"offsets": Array[Vector3]([Vector3(0, 1.35, -0.52)]),
 "parent_index_attribute": "parent_index",
 "random_seed": 242963936,
 "rotations": Array[Vector3]([Vector3(0, 0, 0)]),
@@ -382,7 +417,7 @@ data = {
 "labels": Array[String](["banner"]),
 "local_space": true,
 "offset_index_attribute": "offset_index",
-"offsets": Array[Vector3]([Vector3(0, 0.55, -0.18)]),
+"offsets": Array[Vector3]([Vector3(0, 0.55, -0.54)]),
 "parent_index_attribute": "parent_index",
 "random_seed": 3627988437,
 "rotations": Array[Vector3]([Vector3(0, 0, 0)]),
@@ -399,5 +434,5 @@ data = {
 }
 view_zoom = 0.9673493
 view_offset = Vector2(206.36792, -215.35117)
-new_name_counter = 10
+new_name_counter = 11
 in_params = Array[ExtResource("9_aovpp")]([SubResource("Resource_dr3un")])
