@@ -10,19 +10,77 @@ func _init():
 		"tooltip" : "Outputs an attribute with Noise values",
 	}
 
+func _map_noise_type() -> int:
+	match settings.noise_type:
+		NoiseNodeSettings.eNoiseType.ValueCubic:
+			return FastNoiseLite.NoiseType.TYPE_VALUE
+		NoiseNodeSettings.eNoiseType.Perlin:
+			return FastNoiseLite.NoiseType.TYPE_PERLIN
+		NoiseNodeSettings.eNoiseType.Cellular:
+			return FastNoiseLite.NoiseType.TYPE_CELLULAR
+		NoiseNodeSettings.eNoiseType.Simplex:
+			return FastNoiseLite.NoiseType.TYPE_SIMPLEX
+		NoiseNodeSettings.eNoiseType.SimplexSmooth:
+			return FastNoiseLite.NoiseType.TYPE_SIMPLEX
+		_:
+			return FastNoiseLite.NoiseType.TYPE_VALUE
+
+func _map_fractal_type() -> int:
+	match settings.fractal_type:
+		NoiseNodeSettings.eFractalType.FBM:
+			return FastNoiseLite.FractalType.FRACTAL_FBM
+		NoiseNodeSettings.eFractalType.Ridged:
+			return FastNoiseLite.FractalType.FRACTAL_RIDGED
+		NoiseNodeSettings.eFractalType.PingPong:
+			return FastNoiseLite.FractalType.FRACTAL_PING_PONG
+		_:
+			return FastNoiseLite.FractalType.FRACTAL_NONE
+
+func _resolve_sample_positions(in_data : FlowData.Data) -> PackedVector3Array:
+	var sample_name = settings.sample_attribute.strip_edges()
+	if sample_name == "":
+		sample_name = FlowData.AttrPosition
+	var sample_stream = in_data.findStream(sample_name)
+	if sample_stream and sample_stream.data_type == FlowData.DataType.Vector:
+		var size = in_data.size()
+		var stream_size = sample_stream.container.size()
+		var values : PackedVector3Array = sample_stream.container
+		if stream_size == size:
+			return values
+		if stream_size == 1 and size > 0:
+			var expanded := PackedVector3Array()
+			expanded.resize(size)
+			for i in range(size):
+				expanded[i] = values[0]
+			return expanded
+	return in_data.getVector3Container(FlowData.AttrPosition)
+
+func _sample_noise(noise : FastNoiseLite, p : Vector3) -> float:
+	if settings.sample_space == NoiseNodeSettings.eSampleSpace.XZ2D:
+		return noise.get_noise_2d(p.x, p.z)
+	return noise.get_noise_3d(p.x, p.y, p.z)
+
 func execute( _ctx : FlowData.EvaluationContext ):
 	var in_data : FlowData.Data = get_input(0)
+	if in_data == null:
+		setError("Input not found")
+		return
+
 	var out_data : FlowData.Data = in_data.duplicate()
-		
-	var ipos : PackedVector3Array = out_data.getContainerChecked( FlowData.AttrPosition, FlowData.DataType.Vector )
-	if ipos == null:
+
+	var ipos : PackedVector3Array = _resolve_sample_positions(in_data)
+	if ipos.size() != in_data.size():
+		setError("Noise source attribute '%s' must be a Vector stream with %d values (or 1 for broadcast)" % [settings.sample_attribute, in_data.size()])
 		return
 		
 	var noise := FastNoiseLite.new()
 	noise.seed = settings.random_seed
-	noise.noise_type = FastNoiseLite.NoiseType.TYPE_VALUE
-	#noise.cellular_distance_function = FastNoiseLite.CellularDistanceFunction.DISTANCE_EUCLIDEAN
-	#noise.cellular_return_type = FastNoiseLite.CellularReturnType.RETURN_DISTANCE
+	noise.noise_type = _map_noise_type()
+	noise.fractal_type = _map_fractal_type()
+	noise.fractal_octaves = maxi(1, settings.fractal_octaves)
+	noise.fractal_lacunarity = settings.fractal_lacunarity
+	noise.fractal_gain = settings.fractal_gain
+	noise.fractal_ping_pong_strength = settings.fractal_ping_pong_strength
 	
 	var in_scale : float = settings.in_scale
 	var noise_bias : float = settings.noise_bias
@@ -42,9 +100,9 @@ func execute( _ctx : FlowData.EvaluationContext ):
 		sout_generated.resize(in_size)
 		for i in range(in_size):
 			var pos := ipos[i] * in_scale
-			var raw_x := noise.get_noise_3d(pos.x, pos.y, pos.z)
-			var raw_y := noise.get_noise_3d(pos.x + 100.0, pos.y + 100.0, pos.z + 100.0)
-			var raw_z := noise.get_noise_3d(pos.x + 200.0, pos.y + 200.0, pos.z + 200.0)
+			var raw_x := _sample_noise(noise, pos)
+			var raw_y := _sample_noise(noise, pos + Vector3(100.0, 100.0, 100.0))
+			var raw_z := _sample_noise(noise, pos + Vector3(200.0, 200.0, 200.0))
 			
 			var val_x := noise_bias + clampf((raw_x + 1.0) * 0.5, 0.0, 1.0) * noise_amplitude
 			var val_y := noise_bias + clampf((raw_y + 1.0) * 0.5, 0.0, 1.0) * noise_amplitude
@@ -75,7 +133,7 @@ func execute( _ctx : FlowData.EvaluationContext ):
 		sout_generated.resize(in_size)
 		for i in range(in_size):
 			var pos := ipos[i] * in_scale
-			var raw_noise := noise.get_noise_3d(pos.x, pos.y, pos.z)
+			var raw_noise := _sample_noise(noise, pos)
 			var noise_01 := (raw_noise + 1.0) * 0.5
 			var nval := clampf(noise_01, 0.0, 1.0)
 			sout_generated[i] = noise_bias + nval * noise_amplitude

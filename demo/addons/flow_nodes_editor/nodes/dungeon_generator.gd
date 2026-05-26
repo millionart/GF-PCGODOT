@@ -158,8 +158,8 @@ func execute(ctx : FlowData.EvaluationContext):
 			var c01 = get_cell.call(x, y + 1)
 			var c11 = get_cell.call(x + 1, y + 1)
 			var total = c00 + c10 + c01 + c11
-			# Place pillar at intersection corners if there's a corner transition
-			if total > 0 and total < 4:
+			# Place pillars only on true corners, not on straight boundaries.
+			if total == 1 or total == 3:
 				var pillar_pos = Vector3((x + 0.5) * cell_size, 0, (y + 0.5) * cell_size)
 				add_point.call(pillar_pos, Vector3.ZERO, 2.0) # Type 2.0 = Pillar
 

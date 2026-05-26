@@ -32,6 +32,9 @@ func execute( ctx : FlowData.EvaluationContext ):
 	var cell_size : float = getSettingValue(ctx, "cell_size", 2.0)
 	var torch_prob : float = getSettingValue(ctx, "torch_probability", 0.15)
 	var seed_val : int = getSettingValue(ctx, "random_seed", 12345)
+	var wall_inset : float = getSettingValue(ctx, "wall_inset", 0.0)
+	var include_concave_pillars : bool = getSettingValue(ctx, "include_concave_pillars", true)
+	var output_scale : Vector3 = getSettingValue(ctx, "output_scale", Vector3.ONE)
 	
 	var in_size = in_data.size()
 	var in_pos = in_data.getVector3Container(FlowData.AttrPosition)
@@ -87,20 +90,21 @@ func execute( ctx : FlowData.EvaluationContext ):
 			
 			if not floor_map.has(nkey):
 				# Neighbor is empty, place wall!
-				var wall_pos = pos + d.offset
+				var dir_vec : Vector3 = d.offset.normalized()
+				var wall_pos = pos + d.offset - dir_vec * wall_inset
 				wall_positions.append(wall_pos)
 				wall_rotations.append(d.rot)
 				
 				# Torch placement
 				if current_type == "Room" and rng.randf() < torch_prob:
-					var torch_pos = pos + d.offset * 0.9 + Vector3(0, 1.45, 0)
+					var torch_pos = wall_pos - dir_vec * (cell_size * 0.05) + Vector3(0, 1.45, 0)
 					torch_positions.append(torch_pos)
 					torch_rotations.append(d.rot)
 			else:
 				var neighbor = floor_map[nkey]
 				if current_type == "Room" and neighbor.cell_type == "Corridor":
 					# Transition from Room to Corridor: place door!
-					var door_pos = pos + d.offset
+					var door_pos = pos + d.offset - d.offset.normalized() * wall_inset
 					door_positions.append(door_pos)
 					door_rotations.append(d.rot)
 					
@@ -125,7 +129,9 @@ func execute( ctx : FlowData.EvaluationContext ):
 			var c01 = 1 if floor_map.has(Vector2i(x, y + 1)) else 0
 			var c11 = 1 if floor_map.has(Vector2i(x + 1, y + 1)) else 0
 			var total = c00 + c10 + c01 + c11
-			if total > 0 and total < 4:
+			var is_convex_corner = (total == 1)
+			var is_concave_corner = (total == 3)
+			if is_convex_corner or (include_concave_pillars and is_concave_corner):
 				pillar_positions.append(Vector3((x + 0.5) * cell_size, 0, (y + 0.5) * cell_size))
 				pillar_rotations.append(Vector3.ZERO)
 				
@@ -140,7 +146,7 @@ func execute( ctx : FlowData.EvaluationContext ):
 		for idx in range(n_pts):
 			spos[idx] = positions[idx]
 			srot[idx] = rotations[idx]
-			ssize[idx] = Vector3(cell_size, 1.0, cell_size)
+			ssize[idx] = output_scale
 		var out_types = PackedFloat32Array()
 		out_types.resize(n_pts)
 		out_types.fill(p_type)

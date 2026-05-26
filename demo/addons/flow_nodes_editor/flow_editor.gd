@@ -254,18 +254,60 @@ func getNewName( suffix : String ):
 	new_name_counter += 1
 	return "id_%04d_%s" % [ new_name_counter, suffix ]
 
-func registerNodeType( node_type_name, file ):
-	var full_res_path = directory_path + "/" + file
-	var loaded_class : Script = load( full_res_path ) as Script
-	if not loaded_class:
-		push_error("Failed to load class %s" % full_res_path )
+func _is_node_script_file_name(file_name: String) -> bool:
+	var normalized := file_name.strip_edges()
+	if normalized.is_empty():
+		return false
+	if normalized.begins_with("."):
+		return false
+	if normalized.ends_with(".gd.uid"):
+		return false
+	return normalized.ends_with(".gd")
+
+func _normalize_node_script_path(file_name: String) -> String:
+	var normalized := file_name.strip_edges()
+	if normalized.is_empty():
+		return ""
+	if normalized.ends_with(".uid"):
+		normalized = normalized.trim_suffix(".uid")
+	if normalized.begins_with("uid://"):
+		return ""
+	if not normalized.begins_with("res://"):
+		normalized = "%s/%s" % [directory_path, normalized]
+	return normalized
+
+func registerNodeType(node_type_name: String, file_name: String):
+	var full_res_path := _normalize_node_script_path(file_name)
+	if full_res_path.is_empty():
+		if file_name.begins_with("uid://"):
+			push_warning("Skipping uid-based node script reference: %s" % file_name)
 		return
-	print( "Loading class %s" % full_res_path )
-	var instance = loaded_class.new() as FlowNodeBase
+	var loaded_class := load(full_res_path) as Script
+	if not loaded_class:
+		push_error("Failed to load class %s" % full_res_path)
+		return
+	if not loaded_class.can_instantiate():
+		push_error("Script %s failed to compile or cannot be instantiated" % full_res_path)
+		return
+	print("Loading class %s" % full_res_path)
+	var created = loaded_class.new()
+	if created == null:
+		push_error("Failed to instantiate script %s" % full_res_path)
+		return
+	var instance := created as FlowNodeBase
+	if not instance:
+		push_error("Script %s does not extend FlowNodeBase" % full_res_path)
+		if created is Object:
+			created.free()
+		return
 	var meta = instance.getMeta()
+	instance.free()
+	if typeof(meta) != TYPE_DICTIONARY:
+		push_error("Script %s returned invalid node meta data" % full_res_path)
+		return
 	meta.factory = loaded_class
 	#print( "Registering node type %s" % node_type_name )
-	node_types[ node_type_name ] = meta
+	node_types[node_type_name] = meta
 
 func registerInputNodeType( input ):
 	var node_type_name := "input_%s" % input.name
@@ -276,12 +318,25 @@ func registerOutputNodeType( output ):
 	registerNodeType( node_type_name, "output.gd")
 
 func scanAvailableNodes():
-	var files := ResourceLoader.list_directory(directory_path) 
+	node_types.clear()
+	var files := ResourceLoader.list_directory(directory_path)
+	files.sort()
 	for file in files:
-		var stem = file.get_basename()
+		var file_name := String(file)
+		if not _is_node_script_file_name(file_name):
+			continue
+		var stem := file_name.get_basename()
 		if stem.ends_with("_settings"):
 			continue
-		registerNodeType( stem, file )
+		registerNodeType(stem, file_name)
+
+	# Dynamic input_* and output_* templates depend on the graph being edited.
+	if current_resource:
+		for input in current_resource.in_params:
+			registerInputNodeType(input)
+		if "out_params" in current_resource:
+			for output in current_resource.out_params:
+				registerOutputNodeType(output)
 
 func populatePopupInputsMenu():
 	if not popup_menu_inputs:
@@ -368,13 +423,14 @@ func populatePopupMenu() -> PopupMenu:
 
 	# Categorized node submenus
 	var cat_map = {
-		"Attributes": ["add_attribute", "remove_attribute"],
-		"Math": ["math_op", "remap", "expression", "reduce"],
+		"Attributes": ["add_attribute", "attribute_rename", "remove_attribute", "attribute_filter_range", "point_filter_range", "mutate_seed", "add_tags", "delete_tags", "replace_tags"],
+		"Math": ["math_op", "remap", "expression", "reduce", "boolean"],
 		"Splines": ["create_spline", "sample_spline", "distance", "scan_splines"],
-		"Meshes": ["sample_mesh", "scan_meshes"],
+		"Meshes": ["sample_mesh", "mesh_sampler", "scan_meshes", "point_from_mesh", "texture_sampler"],
+		"Spatial": ["substract", "difference", "intersection", "union", "point_neighborhood", "attribute_set_to_point", "point_to_attribute_set", "ray_cast", "physics_overlap_query"],
 		"Assets": ["assets", "spawn_meshes", "spawn_scenes"],
-		"Generators": ["grid", "noise", "relax", "self_pruning", "dungeon_generator"],
-		"Utility": ["input", "output", "subgraph", "loop", "debug", "sort", "merge", "partition", "filter", "copy"]
+		"Generators": ["grid", "noise", "relax", "self_pruning", "dungeon_generator", "volume_sampler"],
+		"Utility": ["input", "output", "subgraph", "loop", "debug", "sort", "merge", "partition", "filter", "copy", "points_from_scene", "points_from_tilemap", "points_from_gridmap", "get_points_count", "get_loop_index"]
 	}
 	
 	# Helper to find category of a node template

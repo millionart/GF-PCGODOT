@@ -212,15 +212,15 @@ func setup(p_node_types: Dictionary, p_inputs: Array, p_outputs: Array, p_has_se
 		"Control Flow": ["branch", "select", "select_multi", "switch"],
 		"Debug": ["debug", "print_string", "sanity_check"],
 		"Density": ["curve_remap_density", "density_remap", "distance_to_density"],
-		"Filter": ["filter", "filter_data_by_tag", "filter_data_by_attribute", "filter_data_by_type", "self_pruning"],
-		"Math": ["math_op", "expression", "reduce"],
-		"Metadata": ["add_attribute", "remove_attribute", "make_vector", "compose_vector", "decompose_vector", "attribute_random", "match_and_set", "random_color"],
-		"Point Ops": ["bounds_modifier", "transform", "build_rotation_from_up", "combine_points", "duplicate_point", "snap_to_grid"],
-		"Sampler": ["copy", "sample_mesh", "select_points", "sample_spline", "surface_sampler"],
-		"Spatial": ["create_spline", "distance", "ray_cast"],
+		"Filter": ["filter", "filter_data_by_tag", "filter_data_by_attribute", "filter_data_by_type", "attribute_filter_range", "point_filter_range", "self_pruning", "substract", "difference", "intersection", "union"],
+		"Math": ["math_op", "expression", "reduce", "boolean"],
+		"Metadata": ["add_attribute", "attribute_rename", "remove_attribute", "add_tags", "delete_tags", "replace_tags", "make_vector", "compose_vector", "decompose_vector", "attribute_random", "match_and_set", "mutate_seed", "random_color"],
+		"Point Ops": ["bounds_modifier", "transform", "build_rotation_from_up", "combine_points", "duplicate_point", "snap_to_grid", "point_neighborhood", "attribute_set_to_point", "point_to_attribute_set"],
+		"Sampler": ["copy", "sample_mesh", "mesh_sampler", "point_from_mesh", "select_points", "sample_spline", "surface_sampler", "volume_sampler", "texture_sampler"],
+		"Spatial": ["create_spline", "distance", "ray_cast", "physics_overlap_query"],
 		"Assets": ["assets", "spawn_meshes", "spawn_scenes", "spawn_nodes"],
 		"Generators": ["grid", "noise", "relax", "dungeon_generator", "make_bounds"],
-		"Utility": ["input", "output", "subgraph", "loop", "sort", "merge", "partition", "scan_meshes", "scan_splines", "scan_nodes", "sequence_sample", "size"]
+		"Utility": ["input", "output", "subgraph", "loop", "sort", "merge", "partition", "scan_meshes", "scan_splines", "scan_nodes", "points_from_scene", "points_from_tilemap", "points_from_gridmap", "sequence_sample", "size", "get_points_count", "get_loop_index"]
 	}
 
 	

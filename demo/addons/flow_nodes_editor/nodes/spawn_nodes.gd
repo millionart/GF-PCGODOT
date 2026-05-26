@@ -23,6 +23,52 @@ func removeInstancedNodes( root : Node3D ):
 	for node in nodes:
 		node.queue_free()
 
+func _resolve_spawn_parent(root : Node3D) -> Node3D:
+	var path = settings.spawn_parent_path.strip_edges()
+	if path == "":
+		return root
+	var n = root.get_node_or_null(path)
+	if n is Node3D:
+		return n
+	setError("Spawn parent path '%s' is invalid or not a Node3D" % path)
+	return root
+
+func _resolve_class_name_for_point(idx : int, selector_stream) -> String:
+	var variants : Array[String] = []
+	for entry in settings.node_class_variants:
+		var trimmed = String(entry).strip_edges()
+		if trimmed != "":
+			variants.append(trimmed)
+	if variants.is_empty():
+		return settings.node_class.strip_edges()
+
+	if settings.randomize_node_variants:
+		var rng_local := RandomNumberGenerator.new()
+		rng_local.seed = settings.random_seed + idx * 811
+		return variants[rng_local.randi_range(0, variants.size() - 1)]
+
+	if selector_stream != null:
+		var read_idx = idx if selector_stream.container.size() > 1 else 0
+		var val = int(absf(float(selector_stream.container[read_idx])))
+		return variants[val % variants.size()]
+
+	return variants[idx % variants.size()]
+
+func _instantiate_class_or_script(class_name_to_spawn : String) -> Node:
+	if class_name_to_spawn == "":
+		return null
+	var is_script_path = class_name_to_spawn.begins_with("res://") and class_name_to_spawn.ends_with(".gd")
+	if is_script_path:
+		var script = load(class_name_to_spawn)
+		if script == null:
+			return null
+		return script.new()
+	if not ClassDB.class_exists(class_name_to_spawn):
+		return null
+	if not ClassDB.can_instantiate(class_name_to_spawn):
+		return null
+	return ClassDB.instantiate(class_name_to_spawn)
+
 func execute( ctx : FlowData.EvaluationContext ):
 	var in_data : FlowData.Data = get_input(0)
 	if !in_data:
@@ -46,8 +92,10 @@ func execute( ctx : FlowData.EvaluationContext ):
 		setError("Missing required transforms stream")
 		return
 		
+	var spawn_parent = _resolve_spawn_parent(root)
 	var in_size = in_data.size()
-	removeInstancedNodes( root )
+	if settings.clear_previous_instances:
+		removeInstancedNodes( spawn_parent )
 
 	# Find who is going to be the owner of the new nodes
 	var node_tree = root.get_tree()
@@ -68,20 +116,17 @@ func execute( ctx : FlowData.EvaluationContext ):
 		while owner_of_spawned_nodes.get_parent() and owner_of_spawned_nodes.owner:
 			owner_of_spawned_nodes = owner_of_spawned_nodes.get_parent()
 
-	var class_name_to_spawn = settings.node_class.strip_edges()
-	if class_name_to_spawn == "":
-		setError("Node Class name cannot be empty")
-		return
-
-	# Helper to check if class exists and can be instantiated
-	var is_script_path = class_name_to_spawn.begins_with("res://") and class_name_to_spawn.ends_with(".gd")
-	if not is_script_path:
-		if not ClassDB.class_exists(class_name_to_spawn):
-			setError("Class '%s' does not exist in ClassDB" % class_name_to_spawn)
+	var selector_stream = null
+	if settings.node_selector_attribute.strip_edges() != "":
+		selector_stream = in_data.findStream(settings.node_selector_attribute)
+		if selector_stream != null and selector_stream.data_type != FlowData.DataType.Int and selector_stream.data_type != FlowData.DataType.Float:
+			setError("Node selector attribute '%s' must be Int or Float" % settings.node_selector_attribute)
 			return
-		if not ClassDB.can_instantiate(class_name_to_spawn):
-			setError("Class '%s' cannot be instantiated directly" % class_name_to_spawn)
-			return
+		if selector_stream != null:
+			var sel_size = selector_stream.container.size()
+			if sel_size != in_data.size() and sel_size != 1:
+				setError("Node selector attribute '%s' must have %d values or 1 value (got %d)" % [settings.node_selector_attribute, in_data.size(), sel_size])
+				return
 
 	# Setup property mapping streams
 	var streams_to_assign = []
@@ -93,13 +138,8 @@ func execute( ctx : FlowData.EvaluationContext ):
 
 	# Spawn nodes
 	for idx in range( in_size ):
-		var node : Node = null
-		if is_script_path:
-			var script = load(class_name_to_spawn)
-			if script:
-				node = script.new()
-		else:
-			node = ClassDB.instantiate(class_name_to_spawn)
+		var class_name_to_spawn = _resolve_class_name_for_point(idx, selector_stream)
+		var node : Node = _instantiate_class_or_script(class_name_to_spawn)
 
 		if not node:
 			setError("Failed to instantiate '%s'" % class_name_to_spawn)
@@ -113,13 +153,20 @@ func execute( ctx : FlowData.EvaluationContext ):
 
 		node3d.transform = transforms.atIndex( idx )
 		node3d.name = "%s_%04d" % [class_name_to_spawn.get_file().get_basename(), idx]
-		root.add_child( node3d )
+		spawn_parent.add_child( node3d )
 		node3d.owner = owner_of_spawned_nodes
 		node3d.set_meta("flow_owner", name )
+		var assign_target : Node = node3d
+		var assign_target_path = settings.assign_target_path.strip_edges()
+		if assign_target_path != "":
+			var target_node = node3d.get_node_or_null(assign_target_path)
+			if target_node:
+				assign_target = target_node
 
 		# Assign mapped attributes to properties
 		for s in streams_to_assign:
-			node3d.set( s.node_property, s.container[ idx ])
+			var read_idx = idx if s.container.size() > 1 else 0
+			assign_target.set( s.node_property, s.container[ read_idx ])
 	
 	EditorInterface.mark_scene_as_unsaved()
 	set_output(0, in_data)
