@@ -1,9 +1,17 @@
 # PCGODOT (Flow Graph)
 
 [![Godot Engine](https://img.shields.io/badge/Godot-%23FFFFFF.svg?style=flat&logo=godot-engine&logoColor=cyan)](https://godotengine.org)
-[![Version](https://img.shields.io/badge/Version-1.2.0--aligned-blue.svg)](#)
+[![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
 
 **PCGODOT** is a highly powerful, node-based Procedural Content Generation (PCG) framework for Godot 4.6+, heavily inspired by advanced node-based procedural workflows. It enables developers to construct intricate point-set distributions, manipulate spatial attributes, and spawn meshes, lights, or scene hierarchies procedurally using a visual flow graph editor inside Godot.
+
+ℹ️ **Project Origin & Fork Information**:  
+This project is a fork and feature-rich expansion of the original **[flownode](https://github.com/miskatonicstudio/flownode)** plugin. It has been significantly upgraded and polished with new features, tools, and QoL enhancements to make it a more comprehensive editor tool:
+* **Interactive 3D Viewport Debugging**: Toggle node visualizations directly inside the 3D editor (using the **`D`** key) to see exactly where points are spawning.
+* **Searchable Data Inspector**: An attribute table spreadsheet panel (using the **`E`** key) with live text-filtering and cross-highlighting (selecting a row highlights the target point in Magenta in the 3D viewport).
+* **Auto-Reload Graph Cache**: Real-time monitoring of `.tres` graph files to invalidate editor caches and hot-reload changes instantly.
+* **Over 110 Nodes**: A substantially expanded node library including math expressions, spline/polygon clipping, physics queries, and layout generators.
+* **Precompiled Binaries**: Bundled GDExtension libraries for Windows and macOS.
 
 ![PCGODOT Flow Editor](demo/addons/flow_nodes_editor/doc/demo_flashy_colonnade_ui.png)
 
@@ -105,4 +113,4 @@ Precompiled binaries for Windows and macOS are included under `demo/bin/` by def
 ---
 
 ## 📄 License
-This project is licensed under the MIT License. Feel free to adapt and expand it!
+This project is licensed under the Apache License 2.0. Feel free to adapt and expand it!
