@@ -87,6 +87,50 @@ static func _stabilize_missing_seed(settings_res: Resource, node_name: String, t
 		stable_seed = 1
 	settings_res.set("random_seed", stable_seed)
 
+static func _serialize_args_ports(node, editor: Control) -> Dictionary:
+	var args_ports: Dictionary = node.args_ports_by_name.duplicate(true)
+	for arg_name in args_ports:
+		args_ports[arg_name].connected = editor.is_node_port_connected(node.name, args_ports[arg_name].port)
+	return args_ports
+
+static func _settings_name(settings) -> String:
+	if settings == null:
+		return ""
+	if settings is Dictionary:
+		return str(settings.get("name", ""))
+	if settings is Object and "name" in settings:
+		return str(settings.name)
+	return ""
+
+static func _canonical_dynamic_node_template(node_template: String, settings) -> String:
+	var param_name := _settings_name(settings)
+	if param_name.is_empty():
+		return node_template
+	if node_template.begins_with("input_"):
+		return "input_%s" % param_name
+	if node_template.begins_with("output_"):
+		return "output_%s" % param_name
+	return node_template
+
+static func _serialized_node_template(node) -> String:
+	return _canonical_dynamic_node_template(str(node.node_template), node.settings)
+
+static func _template_for_load(in_node: Dictionary, editor: Control) -> String:
+	var node_template := str(in_node.get("template", ""))
+	var canonical_template := _canonical_dynamic_node_template(
+		node_template,
+		in_node.get("settings", {})
+	)
+	if editor.has_method("ensureNodeTypeRegistered"):
+		editor.ensureNodeTypeRegistered(canonical_template)
+	return canonical_template
+
+static func _normalize_loaded_node_template(node, editor: Control) -> void:
+	if node == null:
+		return
+	if editor.has_method("normalizeDynamicNodeTemplate"):
+		editor.normalizeDynamicNodeTemplate(node)
+
 static func nodes_as_dict( nodes, frames, editor : Control ):
 	var exported_node_names = {}
 	
@@ -102,14 +146,13 @@ static func nodes_as_dict( nodes, frames, editor : Control ):
 	
 	var nodes_clean = nodes.map( func( node ):
 		exported_node_names[ node.name ] = 1
-		node.refreshConnectionFlags()
 		
 		return {
 			"position" : ( node.position_offset - min_pos ) / editor.ui_scale,
 			"name" : node.name,
-			"template" : node.node_template,
+			"template" : _serialized_node_template(node),
 			"show_disconnected_inputs" : node.show_disconnected_inputs,
-			"args_port" : node.args_ports_by_name,
+			"args_port" : _serialize_args_ports(node, editor),
 			"settings" : resource_to_dict( node.settings ),
 		}
 	)
@@ -166,10 +209,11 @@ static func create_nodes_from_dict( dict, editor : Control, paste_offset = null)
 	var old_to_new_names = {}
 	for in_node in dict.nodes:
 		var in_name = in_node.name
+		var node_template = _template_for_load(in_node, editor)
 		var new_name = in_name
 		if editor.gedit_nodes_by_name.has( in_name ):
-			new_name = editor.getNewName(in_node.template)
-		var node = editor.addNodeFromTemplate( in_node.template, new_name )
+			new_name = editor.getNewName(node_template)
+		var node = editor.addNodeFromTemplate( node_template, new_name )
 		if not node:
 			return null
 		var in_pos = _parse_vector2( in_node.position )
@@ -179,6 +223,7 @@ static func create_nodes_from_dict( dict, editor : Control, paste_offset = null)
 		
 		# Apply saved settings...
 		dict_to_resource( in_node.settings, node.settings )
+		_normalize_loaded_node_template(node, editor)
 		
 		# Never inport the inspect_enabled
 		node.settings.inspect_enabled = false
@@ -235,10 +280,11 @@ static func create_nodes_from_dict_with_progress(dict, editor: Control, paste_of
 		await _report_load_progress(progress_callback, "Building Graph...", completed_steps, total_steps, start_progress, end_progress)
 
 		var in_name = in_node.name
+		var node_template = _template_for_load(in_node, editor)
 		var new_name = in_name
 		if editor.gedit_nodes_by_name.has(in_name):
-			new_name = editor.getNewName(in_node.template)
-		var node = editor.addNodeFromTemplate(in_node.template, new_name, null, false)
+			new_name = editor.getNewName(node_template)
+		var node = editor.addNodeFromTemplate(node_template, new_name, null, false)
 		if not node:
 			return []
 		var in_pos = _parse_vector2(in_node.position)
@@ -250,6 +296,7 @@ static func create_nodes_from_dict_with_progress(dict, editor: Control, paste_of
 		await _report_load_progress(progress_callback, "Building Graph...", completed_steps, total_steps, start_progress, end_progress)
 
 		dict_to_resource(in_node.settings, node.settings)
+		_normalize_loaded_node_template(node, editor)
 		node.settings.inspect_enabled = false
 
 		completed_steps += 1
@@ -432,7 +479,8 @@ static func evaluate_graph(graph: FlowGraphResource, input_data_map: Dictionary,
 		return deps
 		
 	var finals = node_list.filter(func(node):
-		return node.node_template == "output" or node.getMeta().get("is_final", false) or node.settings.debug_enabled or node.settings.inspect_enabled
+		var is_output = node.node_template == "output" or node.node_template.begins_with("output_")
+		return is_output or node.getMeta().get("is_final", false) or node.settings.debug_enabled or node.settings.inspect_enabled
 	)
 	
 	var all_deps = []
@@ -511,7 +559,7 @@ static func evaluate_graph(graph: FlowGraphResource, input_data_map: Dictionary,
 						var container = target_data.addStream(param.name, param.data_type)
 						if container != null:
 							container.resize(1)
-							container[0] = new_value
+							FlowData.Data.writeValue(container, 0, new_value, param.data_type)
 					node.set_output(i, target_data)
 
 	# Execute nodes in topological order

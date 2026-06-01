@@ -145,7 +145,7 @@ func execute( ctx : FlowData.EvaluationContext ):
 					new_value = ctx.owner.args[ param.name ]
 			var container = output.streams[ param.name ].container
 			container.resize( 1 )
-			container[0] = new_value
+			FlowData.Data.writeValue( container, 0, new_value, param.data_type )
 			set_output( i, output )
 	else:
 		if ctx.graph.in_params.size() == 0:
@@ -181,7 +181,7 @@ func execute( ctx : FlowData.EvaluationContext ):
 
 		var container =	output.streams[ settings.name ].container
 		container.resize( 1 )
-		container[0] = new_value
+		FlowData.Data.writeValue( container, 0, new_value, input.data_type )
 			
 		set_output( 0, output )
 

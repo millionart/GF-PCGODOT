@@ -28,6 +28,9 @@ func spawnDock( res_template : String, title : String, bottom : bool ) -> Contro
 		add_control_to_dock( DOCK_SLOT_RIGHT_UL, new_control )
 	return new_control
 
+func _has_valid_graph_dock() -> bool:
+	return graph_dock != null and is_instance_valid(graph_dock)
+
 func _enter_tree():
 	print("Data Flow plugin enabled")
 	graph_dock = spawnDock("res://addons/flow_nodes_editor/flow_editor.tscn", FlowI18n.t("Data Flow"), false ) as Control
@@ -51,10 +54,11 @@ func _enter_tree():
 	set_process(true)
 	
 func _save_external_data():
-	graph_dock.saveResource()
+	if _has_valid_graph_dock() and graph_dock.has_method("saveResource"):
+		graph_dock.saveResource()
 	
 func _exit_tree():
-	if undo_redo:
+	if undo_redo and undo_redo.history_changed.is_connected(_on_history_changed):
 		undo_redo.history_changed.disconnect(_on_history_changed)
 	var efs = EditorInterface.get_resource_filesystem()
 	if efs:
@@ -62,23 +66,32 @@ func _exit_tree():
 			efs.filesystem_changed.disconnect(_on_filesystem_changed)
 		if efs.resources_reimported.is_connected(_on_resources_reimported):
 			efs.resources_reimported.disconnect(_on_resources_reimported)
-	remove_inspector_plugin(node_settings_inspector_plugin)
-	remove_inspector_plugin(graph_input_inspector_plugin)
+	if node_settings_inspector_plugin:
+		remove_inspector_plugin(node_settings_inspector_plugin)
+	if graph_input_inspector_plugin:
+		remove_inspector_plugin(graph_input_inspector_plugin)
 	#remove_inspector_plugin(inspector_plugin)
-	remove_control_from_docks(graph_dock)
-	graph_dock.free()
+	if _has_valid_graph_dock():
+		remove_control_from_docks(graph_dock)
+		graph_dock.queue_free()
+		graph_dock = null
 	if data_inspector_dock and is_instance_valid(data_inspector_dock):
 		remove_control_from_bottom_panel(data_inspector_dock)
-		data_inspector_dock.free()
-	selection.selection_changed.disconnect(_selection_changed)
+		data_inspector_dock.queue_free()
+		data_inspector_dock = null
+	if selection and selection.selection_changed.is_connected(_selection_changed):
+		selection.selection_changed.disconnect(_selection_changed)
 
 func _ready():
-	selection.selection_changed.connect(_selection_changed)
+	if selection and not selection.selection_changed.is_connected(_selection_changed):
+		selection.selection_changed.connect(_selection_changed)
 	_selection_changed()
 
 # This is called after the a new scene is loaded, but the 'selection' event of the new
 # scene is called first.
 func on_scene_changed(scene_root: Node) -> void:
+	if not _has_valid_graph_dock() or scene_root == null:
+		return
 	print( "Scene Changed detected %s : %s -> %s" % [graph_dock.current_resource, is_instance_valid(graph_dock.resource_owner), scene_root.name ] )
 	if is_instance_valid(graph_dock.resource_owner):
 		var node = graph_dock.resource_owner
@@ -94,6 +107,8 @@ func on_scene_changed(scene_root: Node) -> void:
 		
 
 func _selection_changed():
+	if not _has_valid_graph_dock():
+		return
 	
 	var scene_nodes = selection.get_selected_nodes()
 	if not scene_nodes.is_empty():
@@ -114,6 +129,8 @@ func setWatchedNode( new_node ):
 		new_node.graph_node_changed.connect( onSelectedGraphNodeChanged )
 
 func onSelectedGraphNodeChanged( node : FlowGraphNode3D, prop_name: String ):
+	if not _has_valid_graph_dock():
+		return
 	print( "onSelectedGraphNodeChanged %s.%s" % [node.name, prop_name] )
 	if prop_name == "graph_resource":
 		print( "  -> %s" % [node.graph] )
@@ -122,7 +139,8 @@ func onSelectedGraphNodeChanged( node : FlowGraphNode3D, prop_name: String ):
 
 func _on_history_changed( ):
 	#print("Something changed in the editor (undo/redo history updated)")	
-	graph_dock.onEditorSceneChanged()
+	if _has_valid_graph_dock():
+		graph_dock.onEditorSceneChanged()
 
 func _process( elapsed : float ):
 	var scene_root = get_editor_interface().get_edited_scene_root()
@@ -132,12 +150,12 @@ func _process( elapsed : float ):
 
 func _on_filesystem_changed():
 	# Auto-reload current graph when files change on disk
-	if graph_dock and graph_dock.current_resource:
+	if _has_valid_graph_dock() and graph_dock.current_resource:
 		graph_dock._on_filesystem_changed()
 
 func _on_resources_reimported(resources: PackedStringArray):
 	# Check if any reimported resource is the current graph or a subgraph
-	if graph_dock and graph_dock.current_resource:
+	if _has_valid_graph_dock() and graph_dock.current_resource:
 		var current_path = graph_dock.current_resource.resource_path
 		for res_path in resources:
 			if res_path == current_path or res_path.ends_with(".tres"):

@@ -153,7 +153,7 @@ func _populate_flow_editor_settings(flow_editor):
 	settings_box.add_theme_constant_override("separation", 10)
 	content_vbox.add_child(settings_box)
 
-	settings_box.add_child(_create_row(FlowI18n.t("Auto Regen"), _create_editor_setting_checkbox(flow_editor.auto_regen, func(pressed):
+	settings_box.add_child(_create_row(FlowI18n.t("Auto Generate"), _create_editor_setting_checkbox(flow_editor.auto_regen, func(pressed):
 		flow_editor._on_auto_regen_toggled(pressed)
 	)))
 	settings_box.add_child(_create_row(FlowI18n.t("Color Nodes"), _create_editor_setting_checkbox(flow_editor.color_nodes, func(pressed):

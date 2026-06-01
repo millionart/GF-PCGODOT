@@ -122,6 +122,38 @@ class Data:
 			_:
 				push_error( "newContainerOfType(%d) type not supported" % [ data_type ])
 		return null
+
+	static func writeValue( container, index : int, value, data_type : DataType ) -> void:
+		match data_type:
+			DataType.Bool:
+				var typed_container : PackedByteArray = container
+				typed_container[index] = 1 if bool(value) else 0
+			DataType.Int:
+				var typed_container : PackedInt32Array = container
+				typed_container[index] = int(value)
+			DataType.Float:
+				var typed_container : PackedFloat32Array = container
+				typed_container[index] = float(value)
+			DataType.Vector:
+				var typed_container : PackedVector3Array = container
+				typed_container[index] = value
+			DataType.String:
+				var typed_container : PackedStringArray = container
+				typed_container[index] = str(value)
+			DataType.Resource:
+				var typed_container : Array = container
+				typed_container[index] = value
+			DataType.NodeMesh:
+				var typed_container : Array = container
+				typed_container[index] = value
+			DataType.NodePath:
+				var typed_container : Array = container
+				typed_container[index] = value
+			DataType.Color:
+				var typed_container : PackedColorArray = container
+				typed_container[index] = value
+			_:
+				push_error( "writeValue(%d) type not supported" % [ data_type ])
 	
 	func numFields() -> int:
 		return streams.size()

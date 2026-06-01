@@ -109,7 +109,7 @@ func execute( ctx : FlowData.EvaluationContext ):
 					var container = override_data.addStream(param.name, param.data_type)
 					if container != null:
 						container.resize(1)
-						container[0] = override_val
+						FlowData.Data.writeValue(container, 0, override_val, param.data_type)
 					input_data_map[param.name] = override_data
 					_last_input_data_map[param.name] = override_data
 				# Priority 3: Graph default (handled by the evaluator's input node)

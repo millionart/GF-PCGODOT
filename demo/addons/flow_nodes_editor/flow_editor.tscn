@@ -47,7 +47,7 @@ text = "Save Resource"
 unique_name_in_owner = true
 layout_mode = 2
 button_pressed = true
-text = "Auto Regen"
+text = "Auto Generate"
 
 [node name="CheckColorNodes" type="CheckBox" parent="VBoxContainer/ScrollContainer/HBoxContainer"]
 unique_name_in_owner = true

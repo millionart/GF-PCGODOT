@@ -32,6 +32,7 @@ var custom_graph_grid
 # This is the default graph-node instantiated, the script contains the logic
 var packed_node = preload("res://addons/flow_nodes_editor/node.tscn")
 const directory_path := FlowNodeRegistry.DEFAULT_NODE_DIRECTORY
+const EDITOR_SETTING_AUTO_REGEN := "addons/flow_nodes_editor/auto_generate"
 const EDITOR_SETTING_NATIVE_GRAPH_GRID := "addons/flow_nodes_editor/use_native_graph_grid"
 
 # New nodes generation using the editor
@@ -690,6 +691,11 @@ func getNewName( suffix : String ):
 	new_name_counter += 1
 	return "id_%04d_%s" % [ new_name_counter, suffix ]
 
+func _set_new_name_counter(value: int):
+	new_name_counter = value
+	if current_resource:
+		current_resource.new_name_counter = value
+
 func _is_node_script_file_name(file_name: String) -> bool:
 	var normalized := file_name.strip_edges()
 	if normalized.is_empty():
@@ -762,6 +768,35 @@ func registerInputNodeType( input ):
 func registerOutputNodeType( output ):
 	var node_type_name := "output_%s" % output.name
 	registerNodeType( node_type_name, "output.gd")
+
+func ensureNodeTypeRegistered(node_template: String) -> bool:
+	if node_types.has(node_template):
+		return true
+	if node_template.begins_with("input_"):
+		registerNodeType(node_template, "input.gd")
+	elif node_template.begins_with("output_"):
+		registerNodeType(node_template, "output.gd")
+	else:
+		var script_path := FlowNodeRegistry.get_node_script_path(node_template)
+		if not script_path.is_empty():
+			registerNodeType(node_template, script_path.get_file(), script_path.get_base_dir())
+	return node_types.has(node_template)
+
+func normalizeDynamicNodeTemplate(node: FlowNodeBase) -> void:
+	if node == null or node.settings == null or not ("name" in node.settings):
+		return
+	var param_name := str(node.settings.name)
+	if param_name.is_empty():
+		return
+	var canonical_template := ""
+	if node.node_template.begins_with("input_"):
+		canonical_template = "input_%s" % param_name
+	elif node.node_template.begins_with("output_"):
+		canonical_template = "output_%s" % param_name
+	if canonical_template.is_empty() or canonical_template == node.node_template:
+		return
+	ensureNodeTypeRegistered(canonical_template)
+	node.node_template = canonical_template
 
 func scanAvailableNodes():
 	node_types.clear()
@@ -1216,18 +1251,26 @@ func _load_editor_settings():
 	var editor_settings := EditorInterface.get_editor_settings()
 	if not editor_settings:
 		return
+	if not editor_settings.has_setting(EDITOR_SETTING_AUTO_REGEN):
+		editor_settings.set_setting(EDITOR_SETTING_AUTO_REGEN, auto_regen)
+	editor_settings.add_property_info({
+		"name": EDITOR_SETTING_AUTO_REGEN,
+		"type": TYPE_BOOL,
+	})
 	if not editor_settings.has_setting(EDITOR_SETTING_NATIVE_GRAPH_GRID):
 		editor_settings.set_setting(EDITOR_SETTING_NATIVE_GRAPH_GRID, use_native_graph_grid)
 	editor_settings.add_property_info({
 		"name": EDITOR_SETTING_NATIVE_GRAPH_GRID,
 		"type": TYPE_BOOL,
 	})
+	auto_regen = bool(editor_settings.get_setting(EDITOR_SETTING_AUTO_REGEN))
 	use_native_graph_grid = bool(editor_settings.get_setting(EDITOR_SETTING_NATIVE_GRAPH_GRID))
 
 func _save_editor_settings():
 	var editor_settings := EditorInterface.get_editor_settings()
 	if not editor_settings:
 		return
+	editor_settings.set_setting(EDITOR_SETTING_AUTO_REGEN, auto_regen)
 	editor_settings.set_setting(EDITOR_SETTING_NATIVE_GRAPH_GRID, use_native_graph_grid)
 
 func _apply_graph_grid_mode():
@@ -1336,7 +1379,7 @@ func _apply_toolbar_translations():
 		"ButtonReload": "Reload",
 		"ButtonInputs": "Inputs",
 		"ButtonSave": "Save Resource",
-		"AutoRegen": "Auto Regen",
+		"AutoRegen": "Auto Generate",
 		"CheckColorNodes": "Color Nodes",
 		"ButtonRegenerate": "Regenerate",
 		"ButtonExpandGraph": "Expand",
@@ -1778,17 +1821,37 @@ func _on_in_params_changed():
 		populatePopupOutputsMenu()
 		if inspector and inspector.current_settings == current_resource:
 			inspector.edit(current_resource)
+
+func _refresh_graph_resource_parameter_edit(prop_name: String) -> bool:
+	if prop_name != "in_params" and prop_name != "out_params":
+		return false
+	if not current_resource:
+		return false
+
+	_on_in_params_changed()
+	for node in getAllNodes():
+		if node.node_template == "input" or node.node_template == "output":
+			node.initFromScript()
+			node.refreshFromSettings()
+			refreshSignalsInputArgs(node)
+	queueSave()
+	queueRegen()
+	return true
 	
 func onNodePropertyChanged( prop_name : String):
+	if _refresh_graph_resource_parameter_edit(prop_name):
+		return
 	if inspected_node and inspected_node is GraphNode:
 		#print( "Node %s.%s has changed" % [ inspected_node.name, prop_name ])
 		inspected_node.onPropChanged( prop_name )
 		inspected_node.refreshFromSettings()
 		if inspected_node is FlowNodeBase and (inspected_node.node_template == "input" or inspected_node.node_template.begins_with("input_")):
 			if prop_name == "name" or prop_name == "data_type":
+				normalizeDynamicNodeTemplate(inspected_node)
 				syncGraphParameters()
 		elif inspected_node is FlowNodeBase and (inspected_node.node_template == "output" or inspected_node.node_template.begins_with("output_")):
 			if prop_name == "name" or prop_name == "data_type":
+				normalizeDynamicNodeTemplate(inspected_node)
 				syncGraphOutputs()
 		queueSave()
 		queueRegen()
@@ -1817,6 +1880,22 @@ func getSelectedNodes() -> Array[GraphNode]:
 		if node and node.selected:
 			nodes.push_back(node)
 	return nodes
+
+func _get_selected_graph_element_names() -> Array:
+	var selected_names := []
+	for child in gedit.get_children():
+		if child is GraphNode or child is GraphFrame:
+			if child.selected:
+				selected_names.append(child.name)
+	return selected_names
+
+func _restore_graph_selection(selected_names: Array):
+	var selected_lookup := {}
+	for node_name in selected_names:
+		selected_lookup[node_name] = true
+	for child in gedit.get_children():
+		if child is GraphNode or child is GraphFrame:
+			child.selected = selected_lookup.has(child.name)
 
 func deleteNodes( nodes : Array[GraphNode] ):
 	var has_input_nodes := false
@@ -1866,6 +1945,11 @@ func queueRegen():
 	#print( "queueRegen -> %s" % [ auto_regen ])
 	regen_pending = auto_regen
 	if regen_running and auto_regen:
+		regen_requested_while_running = true
+
+func queueForcedRegen():
+	regen_pending = true
+	if regen_running:
 		regen_requested_while_running = true
 
 func _cancel_regen_run() -> void:
@@ -1925,6 +2009,7 @@ func refreshSignalsInputArgs( node ):
 func addNodeFromTemplate( node_template, node_name : String, settings = null, initialize := true ):
 	print( "addNode %s (%s : %s)" % [ node_template, node_name, str(settings) ])
 	var node = packed_node.instantiate() as GraphNode
+	ensureNodeTypeRegistered(node_template)
 	var meta = node_types.get( node_template, null )
 	if not meta:
 		push_error("node_type %s is not registered" % node_template)
@@ -1986,9 +2071,30 @@ func _has_input_node_named(uname: String) -> bool:
 func _has_output_node_named(uname: String) -> bool:
 	for child in gedit.get_children():
 		var node = child as FlowNodeBase
-		if node and node.node_template == "output":
+		if node and (node.node_template == "output" or node.node_template.begins_with("output_")):
 			if node.settings and node.settings.name == uname:
 				return true
+	return false
+
+func _is_multi_port_flow_node(node: FlowNodeBase) -> bool:
+	return node != null and node.has_method("is_multi_port") and node.is_multi_port()
+
+func _is_specific_input_node(node: FlowNodeBase) -> bool:
+	if not node or not node.settings:
+		return false
+	if node.node_template.begins_with("input_"):
+		return true
+	if node.node_template == "input":
+		return not _is_multi_port_flow_node(node)
+	return false
+
+func _is_specific_output_node(node: FlowNodeBase) -> bool:
+	if not node or not node.settings:
+		return false
+	if node.node_template.begins_with("output_"):
+		return true
+	if node.node_template == "output":
+		return not _is_multi_port_flow_node(node)
 	return false
 	
 func canConnect( src : FlowNodeBase, src_port : int, dst : FlowNodeBase, dst_port : int ):
@@ -2014,24 +2120,141 @@ func canConnect( src : FlowNodeBase, src_port : int, dst : FlowNodeBase, dst_por
 		
 	#print( "canConnect OK %s:%d (%d)-> %s:%d (%d)" % [ src.name, src_port, src_type, dst.name, dst_port, dst_type ] )
 	return true
+
+func _node_needs_parameter_sync(node_template: String) -> bool:
+	return node_template == "input" or node_template.begins_with("input_")
+
+func _node_needs_output_sync(node_template: String) -> bool:
+	return node_template == "output" or node_template.begins_with("output_")
+
+func _sync_graph_parameters_for_node_template(node_template: String):
+	if _node_needs_parameter_sync(node_template):
+		syncGraphParameters()
+	elif _node_needs_output_sync(node_template):
+		syncGraphOutputs()
+
+func _get_added_node_undo_data(node: FlowNodeBase) -> Dictionary:
+	node.refreshConnectionFlags()
+	return {
+		"name": node.name,
+		"template": node.node_template,
+		"position_offset": node.position_offset,
+		"show_disconnected_inputs": node.show_disconnected_inputs,
+		"args_port": node.args_ports_by_name.duplicate(true),
+		"settings": FlowNodeIO.resource_to_dict(node.settings).duplicate(true),
+	}
+
+func _has_graph_connection(connection: Dictionary) -> bool:
+	for existing in gedit.connections:
+		var same_source = existing.from_node == connection.from_node and existing.from_port == connection.from_port
+		var same_target = existing.to_node == connection.to_node and existing.to_port == connection.to_port
+		if same_source and same_target:
+			return true
+	return false
+
+func _restore_added_node(node_data: Dictionary, connections: Array, selected_names: Array, restored_name_counter: int):
+	_suppress_next_editor_scene_changed()
+	var node_name = node_data.name
+	var node = gedit.get_node_or_null(NodePath(node_name)) as FlowNodeBase
+	if node == null:
+		node = addNodeFromTemplate(node_data.template, node_name, null, false) as FlowNodeBase
+		if node == null:
+			return
+		node.position_offset = node_data.position_offset
+		node.show_disconnected_inputs = node_data.get("show_disconnected_inputs", false)
+		node.args_ports_by_name = node_data.get("args_port", {}).duplicate(true)
+		FlowNodeIO.dict_to_resource(node_data.get("settings", {}), node.settings)
+		node.initFromScript()
+		node.refreshFromSettings()
+	for connection in connections:
+		if not _has_graph_connection(connection):
+			connect_nodes(connection.from_node, connection.from_port, connection.to_node, connection.to_port)
+	node.visible = true
+	_restore_graph_selection(selected_names)
+	_set_new_name_counter(restored_name_counter)
+	_sync_graph_parameters_for_node_template(node.node_template)
+	queueSave()
+	if not connections.is_empty():
+		markAllNodesAsDirty()
+		queueRegen()
+
+func _remove_added_node(node_name: StringName, selected_names: Array, restored_name_counter: int, had_connections := false):
+	_suppress_next_editor_scene_changed()
+	var node = gedit.get_node_or_null(NodePath(node_name)) as GraphNode
+	if node:
+		if inspected_node == node:
+			inspected_node = null
+			if inspector:
+				inspector.edit(null)
+		if data_inspector and data_inspector.node == node:
+			data_inspector.setNode(null)
+			_set_analyze_panel_visible(false)
+			current_analyzed_node = null
+		var nodes: Array[GraphNode] = [node]
+		deleteNodes(nodes)
+	_restore_graph_selection(selected_names)
+	_set_new_name_counter(restored_name_counter)
+	queueSave()
+	if had_connections:
+		markAllNodesAsDirty()
+		queueRegen()
+
+func _record_add_node_undo(
+	node: FlowNodeBase,
+	node_data: Dictionary,
+	connections: Array,
+	selected_before: Array,
+	selected_after: Array,
+	name_counter_before: int,
+	name_counter_after: int
+):
+	_set_new_name_counter(name_counter_after)
+	_suppress_next_editor_scene_changed()
+	var ur = undo_redo
+	if ur and current_resource:
+		var context = EditorInterface.get_edited_scene_root()
+		if not context:
+			context = current_resource
+		ur.create_action("Add Node", 0, context)
+		ur.add_do_method(self, "_restore_added_node", node_data, connections, selected_after, name_counter_after)
+		ur.add_undo_method(self, "_remove_added_node", node.name, selected_before, name_counter_before, not connections.is_empty())
+		ur.commit_action(false) # already executed
+	queueSave()
+	if not connections.is_empty():
+		markAllNodesAsDirty()
+		queueRegen()
 	
 func addNode( node_template, settings = null ):
-	var before_state = get_graph_snapshot()
+	var selected_before := _get_selected_graph_element_names()
+	var name_counter_before := new_name_counter
 	var node_name = getNewName(node_template)
 	var node = addNodeFromTemplate( node_template, node_name, settings )
 	if not node:
 		return null
-		
+	var added_connections := []
+
 	if auto_connect_from_node:
 		var source_node = gedit_nodes_by_name.get( auto_connect_from_node )
 		if canConnect( source_node, auto_connect_from_port, node, 0 ):
 			connect_nodes(auto_connect_from_node, auto_connect_from_port, node.name, 0)
+			added_connections.append({
+				"from_node": auto_connect_from_node,
+				"from_port": auto_connect_from_port,
+				"to_node": node.name,
+				"to_port": 0
+			})
 		auto_connect_from_node = ""
 		
 	if auto_connect_to_node:
 		var target_node = gedit_nodes_by_name.get( auto_connect_to_node )
 		if canConnect( node, 0, target_node, auto_connect_to_port ):
 			connect_nodes(node.name, 0, auto_connect_to_node, auto_connect_to_port )
+			added_connections.append({
+				"from_node": node.name,
+				"from_port": 0,
+				"to_node": auto_connect_to_node,
+				"to_port": auto_connect_to_port
+			})
 		auto_connect_to_node = ""
 	
 	for prev_node in getSelectedNodes():
@@ -2039,11 +2262,19 @@ func addNode( node_template, settings = null ):
 	node.selected = true
 	node.visible = true
 	
-	record_undo_action("Add Node", before_state)
-	if node_template == "input" or node_template.begins_with("input_"):
-		syncGraphParameters()
-	elif node_template == "output" or node_template.begins_with("output_"):
-		syncGraphOutputs()
+	var selected_after := _get_selected_graph_element_names()
+	var name_counter_after := new_name_counter
+	var node_data := _get_added_node_undo_data(node)
+	_record_add_node_undo(
+		node,
+		node_data,
+		added_connections,
+		selected_before,
+		selected_after,
+		name_counter_before,
+		name_counter_after
+	)
+	_sync_graph_parameters_for_node_template(node_template)
 	return node
 
 func _handle_right_mouse_pan(event: InputEvent) -> bool:
@@ -2296,13 +2527,23 @@ func registerAsParameter( name : String, data_type : FlowData.DataType ):
 func syncGraphParameters():
 	if not current_resource:
 		return
+	var has_multi_port_input = false
 	var input_nodes = []
 	for child in gedit.get_children():
 		var node = child as FlowNodeBase
-		if node and (node.node_template == "input" or node.node_template.begins_with("input_")):
+		if not node:
+			continue
+		if node.node_template == "input" and _is_multi_port_flow_node(node):
+			has_multi_port_input = true
+		elif _is_specific_input_node(node):
 			input_nodes.append(node)
 	var new_in_params : Array[GraphInputParameter] = []
 	var seen_names = {}
+	if has_multi_port_input:
+		for p in current_resource.in_params:
+			if p and not seen_names.has(p.name):
+				seen_names[p.name] = true
+				new_in_params.append(p)
 	for input_node in input_nodes:
 		var param_name = input_node.settings.name
 		if param_name == "":
@@ -2334,11 +2575,12 @@ func syncGraphOutputs():
 	var output_nodes = []
 	for child in gedit.get_children():
 		var node = child as FlowNodeBase
-		if node:
-			if node.node_template == "output":
-				has_multi_port_output = true
-			elif node.node_template.begins_with("output_"):
-				output_nodes.append(node)
+		if not node:
+			continue
+		if node.node_template == "output" and _is_multi_port_flow_node(node):
+			has_multi_port_output = true
+		elif _is_specific_output_node(node):
+			output_nodes.append(node)
 	var new_out_params : Array[GraphInputParameter] = []
 	var seen_names = {}
 	
@@ -2773,7 +3015,14 @@ func collapse_selected_to_subgraph():
 
 func disconnect_nodes(from_node: StringName, from_port: int, to_node: StringName, to_port: int) -> void:
 	#print( "disconnect_nodes From:%s:%d To:%s:%d" % [ from_node, from_port, to_node, to_port ])
-	gedit.disconnect_node(from_node, from_port, to_node, to_port)
+	var connection = {
+		"from_node": from_node,
+		"from_port": from_port,
+		"to_node": to_node,
+		"to_port": to_port
+	}
+	if _has_graph_connection(connection):
+		gedit.disconnect_node(from_node, from_port, to_node, to_port)
 	remove_input_source_target_connection( from_node, from_port, to_node, to_port )
 	_mark_status_counts_dirty()
 
@@ -2783,16 +3032,28 @@ func disconnect_nodes(from_node: StringName, from_port: int, to_node: StringName
 	
 func connect_nodes(from_node: StringName, from_port: int, to_node: StringName, to_port: int) -> void:
 	#print( "connect_nodes %s:%d -> %s:%d" % [ from_node, from_port, to_node, to_port ] )
-	gedit.connect_node(from_node, from_port, to_node, to_port)
+	var connection = {
+		"from_node": from_node,
+		"from_port": from_port,
+		"to_node": to_node,
+		"to_port": to_port
+	}
+	if not _has_graph_connection(connection):
+		gedit.connect_node(from_node, from_port, to_node, to_port)
 	_mark_status_counts_dirty()
-	var key = [to_node, to_port]
-	if not input_sources.has(key):
-		input_sources.set( key, [])
-	input_sources[key].append([from_node, from_port])
+	_add_input_source_target_connection(from_node, from_port, to_node, to_port)
 
 	var dst_node : FlowNodeBase = gedit_nodes_by_name.get( to_node )
 	if dst_node != null:
 		dst_node.dirty = true
+
+func _add_input_source_target_connection(from_node: StringName, from_port: int, to_node: StringName, to_port: int):
+	var key = [to_node, to_port]
+	if not input_sources.has(key):
+		input_sources.set( key, [])
+	var source = [from_node, from_port]
+	if not input_sources[key].has(source):
+		input_sources[key].append(source)
 
 
 func findConnectionToNodeAndPort( node : FlowNodeBase, in_port : int ):
@@ -2848,7 +3109,9 @@ func is_node_port_connected( to_node: StringName, to_port: int ) -> bool:
 func remove_input_source_target_connection( from_node: StringName, from_port: int, to_node : StringName, to_port : int ):
 	var key = [to_node, to_port]
 	if key in input_sources:
-		input_sources[key].erase([from_node, from_port])
+		var source = [from_node, from_port]
+		while input_sources[key].has(source):
+			input_sources[key].erase(source)
 		if input_sources[key].is_empty():
 			input_sources.erase(key)
 	
@@ -2923,7 +3186,8 @@ func getAllNodes() -> Array[ FlowNodeBase ]:
 func getEvalOrder():
 	# Find targets, like spawn meshes
 	var finals := getAllNodes().filter( func ( node : FlowNodeBase ) -> bool:
-		return ( not node.settings.disabled ) and ( node.settings.inspect_enabled or node.settings.debug_enabled or node.getMeta().get( "is_final", false ) )
+		var is_output = node.node_template == "output" or node.node_template.begins_with("output_")
+		return ( not node.settings.disabled ) and ( is_output or node.settings.inspect_enabled or node.settings.debug_enabled or node.getMeta().get( "is_final", false ) )
 	)
 	
 	# for each node, find requirements
@@ -3132,7 +3396,7 @@ func _reload_current_graph_with_loading() -> void:
 	ctx.owner = resource_owner
 	ctx.gedit_nodes_by_name = gedit_nodes_by_name
 	markAllNodesAsDirty()
-	queueRegen()
+	queueForcedRegen()
 	populatePopupInputsMenu()
 	populatePopupOutputsMenu()
 	update_status_bar()
@@ -3196,6 +3460,10 @@ func _on_auto_regen_toggled(toggled_on: bool) -> void:
 	auto_regen = toggled_on
 	if has_node("%AutoRegen") and %AutoRegen.button_pressed != toggled_on:
 		%AutoRegen.set_pressed_no_signal(toggled_on)
+	if not toggled_on:
+		regen_pending = false
+		regen_requested_while_running = false
+	_save_editor_settings()
 
 func _on_button_inputs_pressed():
 	_show_graph_inputs_panel()
