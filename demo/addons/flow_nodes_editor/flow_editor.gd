@@ -20,6 +20,7 @@ var inspector: FlowInspector
 var inspected_node : Node
 var make_inspector_visible : Callable
 var search_add_node_popup: SearchAddNodePopup
+var expand_graph_button: Button
 var settings_button: Button
 
 # This is the default graph-node instantiated, the script contains the logic
@@ -835,6 +836,7 @@ func _ready():
 		if inspected_node == node:
 			inspected_node = null
 			inspector.edit(null)
+		_update_expand_button_state()
 	)
 	
 	# Instantiate custom SearchAddNodePopup
@@ -908,6 +910,13 @@ func _setup_toolbar_settings_panel(toolbar: HBoxContainer):
 	if inputs_button:
 		inputs_button.alignment = HORIZONTAL_ALIGNMENT_LEFT
 
+	expand_graph_button = Button.new()
+	expand_graph_button.name = "ButtonExpandGraph"
+	expand_graph_button.text = FlowI18n.t("Expand")
+	expand_graph_button.tooltip_text = FlowI18n.t("Expand Node Inputs")
+	expand_graph_button.pressed.connect(_toggle_selected_nodes_expanded)
+	toolbar.add_child(expand_graph_button)
+
 	settings_button = Button.new()
 	settings_button.name = "ButtonSettings"
 	settings_button.text = FlowI18n.t("Settings")
@@ -922,6 +931,7 @@ func _arrange_toolbar_buttons(toolbar: HBoxContainer):
 		"ButtonAnalyze",
 		"ButtonRegenerate",
 		"ToolbarSpacer",
+		"ButtonExpandGraph",
 		"ButtonInputs",
 		"ButtonSettings",
 	]
@@ -935,6 +945,41 @@ func _arrange_toolbar_buttons(toolbar: HBoxContainer):
 func _show_editor_settings_panel():
 	inspector.edit_editor_settings(self)
 	inspected_node = null
+
+func _toggle_selected_nodes_expanded():
+	var flow_nodes := _get_selected_flow_nodes()
+	if flow_nodes.is_empty():
+		update_status_bar(FlowI18n.t("Select a node to expand"))
+		return
+
+	var expand_nodes := _should_expand_selected_nodes(flow_nodes)
+	for node in flow_nodes:
+		node.nodeOptionsChanged(expand_nodes)
+	queueSave()
+	_update_expand_button_state()
+
+func _get_selected_flow_nodes() -> Array[FlowNodeBase]:
+	var flow_nodes: Array[FlowNodeBase] = []
+	for node in getSelectedNodes():
+		var flow_node := node as FlowNodeBase
+		if flow_node:
+			flow_nodes.append(flow_node)
+	return flow_nodes
+
+func _should_expand_selected_nodes(flow_nodes: Array[FlowNodeBase]) -> bool:
+	for node in flow_nodes:
+		if not node.show_disconnected_inputs:
+			return true
+	return false
+
+func _update_expand_button_state():
+	if not expand_graph_button:
+		return
+	var flow_nodes := _get_selected_flow_nodes()
+	if flow_nodes.is_empty():
+		expand_graph_button.text = FlowI18n.t("Expand")
+		return
+	expand_graph_button.text = FlowI18n.t("Expand" if _should_expand_selected_nodes(flow_nodes) else "Collapse")
 
 func _get_toolbar_control(node_name: String) -> Control:
 	var toolbar = get_node_or_null("VBoxContainer/ScrollContainer/HBoxContainer")
@@ -975,11 +1020,13 @@ func _apply_toolbar_translations():
 	var tooltip_by_name = {
 		"ButtonOpenGraph": "Open a FlowGraph resource",
 		"ButtonAnalyze": "Inspect selected node raw data (A)",
+		"ButtonExpandGraph": "Expand Node Inputs",
 	}
 	for node_name in tooltip_by_name:
 		var control = _get_toolbar_control(node_name)
 		if control:
 			control.tooltip_text = FlowI18n.t(String(tooltip_by_name[node_name]))
+	_update_expand_button_state()
 
 func _on_node_translation_toggled(toggled_on: bool):
 	FlowI18n.set_node_translation_enabled(toggled_on)
@@ -1819,6 +1866,7 @@ func _on_graph_edit_node_selected(node):
 	if inspected_node:
 		inspector.edit(inspected_node)
 		
+	_update_expand_button_state()
 	update_status_bar()
 
 func registerAsParameter( name : String, data_type : FlowData.DataType ):
