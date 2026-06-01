@@ -968,6 +968,7 @@ func _arrange_toolbar_buttons(toolbar: HBoxContainer):
 func _toggle_settings_popup():
 	if not settings_popup or not settings_button:
 		return
+	_show_graph_inputs_panel()
 	if settings_popup.visible:
 		settings_popup.hide()
 		return
@@ -2706,6 +2707,9 @@ func _on_auto_regen_toggled(toggled_on: bool) -> void:
 	auto_regen = toggled_on
 
 func _on_button_inputs_pressed():
+	_show_graph_inputs_panel()
+
+func _show_graph_inputs_panel():
 	if current_resource:
 		inspector.edit( current_resource )
 	inspected_node = null
