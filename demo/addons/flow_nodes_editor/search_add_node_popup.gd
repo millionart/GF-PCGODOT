@@ -262,6 +262,10 @@ func setup(p_node_types: Dictionary, p_inputs: Array, p_outputs: Array, p_has_se
 
 	
 	var get_category = func(template_name: String) -> String:
+		var meta = node_types.get(template_name, {})
+		var meta_category := String(meta.get("category", "")).strip_edges()
+		if not meta_category.is_empty():
+			return meta_category
 		for cat in cat_map:
 			if template_name in cat_map[cat]:
 				return cat

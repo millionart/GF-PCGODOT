@@ -275,11 +275,10 @@ static func evaluate_graph(graph: FlowGraphResource, input_data_map: Dictionary,
 	for n_data in graph.data.get("nodes", []):
 		var template = n_data.template
 		var name = n_data.name
-		var script_path = "res://addons/flow_nodes_editor/nodes/" + template + ".gd"
-		if template.begins_with("input_"):
-			script_path = "res://addons/flow_nodes_editor/nodes/input.gd"
-		elif template.begins_with("output_"):
-			script_path = "res://addons/flow_nodes_editor/nodes/output.gd"
+		var script_path = FlowNodeRegistry.get_node_script_path(template)
+		if script_path.is_empty():
+			push_error("Failed to resolve node script for template: %s. Make sure its provider addon registered its node directory before evaluation." % template)
+			continue
 		var node_script = load(script_path)
 		if not node_script:
 			push_error("Failed to load node script for template: %s" % template)

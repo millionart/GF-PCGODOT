@@ -23,7 +23,7 @@ var search_add_node_popup: SearchAddNodePopup
 
 # This is the default graph-node instantiated, the script contains the logic
 var packed_node = preload("res://addons/flow_nodes_editor/node.tscn")
-const directory_path := "res://addons/flow_nodes_editor/nodes"
+const directory_path := FlowNodeRegistry.DEFAULT_NODE_DIRECTORY
 
 # New nodes generation using the editor
 var local_drop_position : Vector2 = Vector2(0,0)
@@ -54,6 +54,7 @@ var color_nodes : bool = true
 
 var ui_scale = 1.0
 var node_types = { }
+var node_registry_version := -1
 
 var popup_menu_inputs : PopupMenu
 var popup_menu_outputs : PopupMenu
@@ -388,6 +389,8 @@ func saveResource():
 	save_pending = false
 	
 func _process(delta: float) -> void:
+	if node_registry_version != FlowNodeRegistry.get_version():
+		_on_node_registry_changed()
 	if not current_resource:
 		return
 		
@@ -425,7 +428,7 @@ func _is_node_script_file_name(file_name: String) -> bool:
 		return false
 	return normalized.ends_with(".gd")
 
-func _normalize_node_script_path(file_name: String) -> String:
+func _normalize_node_script_path(file_name: String, base_directory: String = directory_path) -> String:
 	var normalized := file_name.strip_edges()
 	if normalized.is_empty():
 		return ""
@@ -434,11 +437,11 @@ func _normalize_node_script_path(file_name: String) -> String:
 	if normalized.begins_with("uid://"):
 		return ""
 	if not normalized.begins_with("res://"):
-		normalized = "%s/%s" % [directory_path, normalized]
+		normalized = "%s/%s" % [base_directory, normalized]
 	return normalized
 
-func registerNodeType(node_type_name: String, file_name: String):
-	var full_res_path := _normalize_node_script_path(file_name)
+func registerNodeType(node_type_name: String, file_name: String, base_directory: String = directory_path):
+	var full_res_path := _normalize_node_script_path(file_name, base_directory)
 	if full_res_path.is_empty():
 		if file_name.begins_with("uid://"):
 			push_warning("Skipping uid-based node script reference: %s" % file_name)
@@ -474,6 +477,10 @@ func registerNodeType(node_type_name: String, file_name: String):
 	meta.full_res_path = full_res_path
 	meta.last_modified_time = FileAccess.get_modified_time(full_res_path)
 	#print( "Registering node type %s" % node_type_name )
+	if node_types.has(node_type_name):
+		var existing_path := String(node_types[node_type_name].get("full_res_path", ""))
+		if existing_path != full_res_path:
+			push_warning("Node template '%s' from %s overrides %s" % [node_type_name, full_res_path, existing_path])
 	node_types[ node_type_name ] = meta
 
 func registerInputNodeType( input ):
@@ -486,25 +493,27 @@ func registerOutputNodeType( output ):
 
 func scanAvailableNodes():
 	node_types.clear()
-	var files : PackedStringArray
-	var dir := DirAccess.open(directory_path)
-	if dir:
-		files = dir.get_files()
-	else:
-		files = ResourceLoader.list_directory(directory_path)
-	var node_files : PackedStringArray = []
-	for file in files:
-		var file_name := String(file)
-		if not _is_node_script_file_name(file_name):
-			continue
-		var stem := file_name.get_basename()
-		if stem.ends_with("_settings"):
-			continue
-		node_files.append(file_name)
-	node_files.sort()
-	for file in node_files:
-		var stem := file.get_basename()
-		registerNodeType( stem, file )
+	node_registry_version = FlowNodeRegistry.get_version()
+	for node_directory in FlowNodeRegistry.get_node_directories():
+		var files : PackedStringArray
+		var dir := DirAccess.open(node_directory)
+		if dir:
+			files = dir.get_files()
+		else:
+			files = ResourceLoader.list_directory(node_directory)
+		var node_files : PackedStringArray = []
+		for file in files:
+			var file_name := String(file)
+			if not _is_node_script_file_name(file_name):
+				continue
+			var stem := file_name.get_basename()
+			if stem.ends_with("_settings"):
+				continue
+			node_files.append(file_name)
+		node_files.sort()
+		for file in node_files:
+			var stem := file.get_basename()
+			registerNodeType( stem, file, node_directory )
 
 	# Dynamic input_* and output_* templates depend on the graph being edited.
 	if current_resource:
@@ -611,7 +620,10 @@ func populatePopupMenu() -> PopupMenu:
 	}
 	
 	# Helper to find category of a node template
-	var get_category = func(template_name: String) -> String:
+	var get_category = func(template_name: String, node_meta: Dictionary) -> String:
+		var meta_category := String(node_meta.get("category", "")).strip_edges()
+		if not meta_category.is_empty():
+			return meta_category
 		for cat in cat_map:
 			if template_name in cat_map[cat]:
 				return cat
@@ -637,7 +649,7 @@ func populatePopupMenu() -> PopupMenu:
 			if not has_compatible_port:
 				continue
 				
-		var cat = get_category.call(key)
+		var cat = get_category.call(key, node_meta)
 		if not categorized_keys.has(cat):
 			categorized_keys[cat] = []
 		categorized_keys[cat].append(key)
@@ -646,9 +658,11 @@ func populatePopupMenu() -> PopupMenu:
 	var sorted_categories = categorized_keys.keys()
 	sorted_categories.sort()
 	
+	var category_idx := 0
 	for cat in sorted_categories:
 		var sub_pm = PopupMenu.new()
-		sub_pm.name = cat + "_menu"
+		sub_pm.name = "category_%d_menu" % category_idx
+		category_idx += 1
 		sub_pm.id_pressed.connect(_on_popup_menu_id_pressed)
 		pm.add_child(sub_pm)
 		pm.add_submenu_item(cat, sub_pm.name)
@@ -2435,6 +2449,23 @@ func _on_button_reload_pressed() -> void:
 		populatePopupInputsMenu()
 		populatePopupOutputsMenu()
 		update_status_bar()
+
+func _on_node_registry_changed() -> void:
+	if current_resource and save_pending:
+		saveResource()
+	scanAvailableNodes()
+	if not current_resource:
+		return
+	_clear_ui_nodes()
+	FlowNodeIO.loadFromResource(self)
+	ctx.graph = current_resource
+	ctx.owner = resource_owner
+	ctx.gedit_nodes_by_name = gedit_nodes_by_name
+	markAllNodesAsDirty()
+	queueRegen()
+	populatePopupInputsMenu()
+	populatePopupOutputsMenu()
+	update_status_bar()
 
 func _on_button_analyze_pressed() -> void:
 	analyzeSelection()

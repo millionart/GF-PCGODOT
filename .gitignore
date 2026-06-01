@@ -53,3 +53,4 @@ demo/addons/kaykit_dungeon_remastered/**
 
 # Godot may generate transient imports for documentation screenshots while editing.
 demo/addons/flow_nodes_editor/doc/*.png.import
+demo/addons/flow_nodes_editor/bin/~*.dll

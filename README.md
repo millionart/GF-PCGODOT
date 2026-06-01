@@ -89,6 +89,27 @@ Generate dynamic gameplay platforms such as the multi-colored hexagon grid inspi
 
 ---
 
+## 🧩 Extending with External Node Addons
+
+Other addons can provide their own Flow node directories without copying files into `flow_nodes_editor/nodes`:
+
+```gdscript
+@tool
+extends EditorPlugin
+
+const NODE_DIRECTORY := "res://addons/your_addon_name/nodes"
+
+func _enter_tree():
+	FlowNodeRegistry.register_node_directory(NODE_DIRECTORY)
+
+func _exit_tree():
+	FlowNodeRegistry.unregister_node_directory(NODE_DIRECTORY)
+```
+
+Register the directory before opening or evaluating graphs that use those nodes. Use namespaced node script filenames such as `youraddon.example_node.gd` to avoid template collisions. A node can set `"category": "Your Addon/Examples"` in `getMeta()` to control where it appears in the add-node menu.
+
+---
+
 ## 🎮 Quickstart Guide
 
 In a 3D Scene:
