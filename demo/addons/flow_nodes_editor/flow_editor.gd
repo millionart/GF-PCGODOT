@@ -839,7 +839,6 @@ func _ready():
 		if inspected_node == node:
 			inspected_node = null
 			inspector.edit(null)
-		_update_expand_button_state()
 	)
 	
 	# Instantiate custom SearchAddNodePopup
@@ -916,8 +915,8 @@ func _setup_toolbar_settings_panel(toolbar: HBoxContainer):
 	expand_graph_button = Button.new()
 	expand_graph_button.name = "ButtonExpandGraph"
 	expand_graph_button.text = FlowI18n.t("Expand")
-	expand_graph_button.tooltip_text = FlowI18n.t("Expand Node Inputs")
-	expand_graph_button.pressed.connect(_toggle_selected_nodes_expanded)
+	expand_graph_button.tooltip_text = FlowI18n.t("Float and Maximize Graph Panel")
+	expand_graph_button.pressed.connect(_float_graph_panel)
 	toolbar.add_child(expand_graph_button)
 
 	settings_button = Button.new()
@@ -949,54 +948,73 @@ func _show_editor_settings_panel():
 	inspector.edit_editor_settings(self)
 	inspected_node = null
 
-func _toggle_selected_nodes_expanded():
-	var flow_nodes := _get_expandable_target_nodes()
-	if flow_nodes.is_empty():
-		var selected_flow_nodes := _get_selected_flow_nodes()
-		if selected_flow_nodes.is_empty():
-			update_status_bar(FlowI18n.t("Select a node to expand"))
-		else:
-			update_status_bar(FlowI18n.t("Selected node has no expandable inputs"))
+func _float_graph_panel():
+	var current_window := get_window()
+	var main_window := EditorInterface.get_base_control().get_window()
+	if current_window and current_window != main_window:
+		_maximize_graph_panel_window()
 		return
 
-	var expand_nodes := _should_expand_selected_nodes(flow_nodes)
-	for node in flow_nodes:
-		node.nodeOptionsChanged(expand_nodes)
-	queueSave()
-	_update_expand_button_state()
-
-func _get_selected_flow_nodes() -> Array[FlowNodeBase]:
-	var flow_nodes: Array[FlowNodeBase] = []
-	var inspected_flow_node := inspected_node as FlowNodeBase
-	if inspected_flow_node:
-		flow_nodes.append(inspected_flow_node)
-	for node in getSelectedNodes():
-		var flow_node := node as FlowNodeBase
-		if flow_node and not flow_node in flow_nodes:
-			flow_nodes.append(flow_node)
-	return flow_nodes
-
-func _get_expandable_target_nodes() -> Array[FlowNodeBase]:
-	var flow_nodes: Array[FlowNodeBase] = []
-	for node in _get_selected_flow_nodes():
-		if not node.getExposedParams().is_empty():
-			flow_nodes.append(node)
-	return flow_nodes
-
-func _should_expand_selected_nodes(flow_nodes: Array[FlowNodeBase]) -> bool:
-	for node in flow_nodes:
-		if not node.show_disconnected_inputs:
-			return true
-	return false
-
-func _update_expand_button_state():
-	if not expand_graph_button:
+	var float_button := _get_dock_float_button()
+	if not float_button:
+		update_status_bar(FlowI18n.t("Could not float graph panel"))
 		return
-	var flow_nodes := _get_expandable_target_nodes()
-	if flow_nodes.is_empty():
-		expand_graph_button.text = FlowI18n.t("Expand")
+	if float_button.disabled:
+		update_status_bar(FlowI18n.t("Graph panel floating is disabled"))
 		return
-	expand_graph_button.text = FlowI18n.t("Expand" if _should_expand_selected_nodes(flow_nodes) else "Collapse")
+
+	float_button.pressed.emit()
+	await get_tree().process_frame
+	_maximize_graph_panel_window()
+
+func _get_dock_float_button() -> Button:
+	var editor_dock := _get_editor_dock()
+	if not editor_dock:
+		return null
+
+	var tab_container := editor_dock.get_parent() as TabContainer
+	if not tab_container:
+		return null
+
+	var tab_index := tab_container.get_tab_idx_from_control(editor_dock)
+	if tab_index < 0:
+		return null
+	tab_container.set_current_tab(tab_index)
+	tab_container.emit_signal("pre_popup_pressed")
+
+	var popup := tab_container.get_popup()
+	if not popup:
+		return null
+	return _find_dock_float_button(popup)
+
+func _get_editor_dock() -> Control:
+	var node: Node = self
+	while node:
+		var parent := node.get_parent()
+		if parent is TabContainer and node is Control:
+			return node as Control
+		node = parent
+	return null
+
+func _find_dock_float_button(node: Node) -> Button:
+	for child in node.get_children():
+		var button := child as Button
+		if button and not button.text.strip_edges().is_empty():
+			return button
+		var nested_button := _find_dock_float_button(child)
+		if nested_button:
+			return nested_button
+	return null
+
+func _maximize_graph_panel_window():
+	var current_window := get_window()
+	var main_window := EditorInterface.get_base_control().get_window()
+	if not current_window or current_window == main_window:
+		update_status_bar(FlowI18n.t("Could not float graph panel"))
+		return
+	current_window.mode = Window.MODE_MAXIMIZED
+	current_window.grab_focus()
+	update_status_bar(FlowI18n.t("Graph panel floated"))
 
 func _get_toolbar_control(node_name: String) -> Control:
 	var toolbar = get_node_or_null("VBoxContainer/ScrollContainer/HBoxContainer")
@@ -1024,6 +1042,7 @@ func _apply_toolbar_translations():
 		"AutoRegen": "Auto Regen",
 		"CheckColorNodes": "Color Nodes",
 		"ButtonRegenerate": "Regenerate",
+		"ButtonExpandGraph": "Expand",
 		"ButtonSettings": "Settings",
 		"LabelInfo": "Info",
 	}
@@ -1037,13 +1056,12 @@ func _apply_toolbar_translations():
 	var tooltip_by_name = {
 		"ButtonOpenGraph": "Open a FlowGraph resource",
 		"ButtonAnalyze": "Inspect selected node raw data (A)",
-		"ButtonExpandGraph": "Expand Node Inputs",
+		"ButtonExpandGraph": "Float and Maximize Graph Panel",
 	}
 	for node_name in tooltip_by_name:
 		var control = _get_toolbar_control(node_name)
 		if control:
 			control.tooltip_text = FlowI18n.t(String(tooltip_by_name[node_name]))
-	_update_expand_button_state()
 
 func _on_node_translation_toggled(toggled_on: bool):
 	FlowI18n.set_node_translation_enabled(toggled_on)
@@ -1883,7 +1901,6 @@ func _on_graph_edit_node_selected(node):
 	if inspected_node:
 		inspector.edit(inspected_node)
 		
-	_update_expand_button_state()
 	update_status_bar()
 
 func registerAsParameter( name : String, data_type : FlowData.DataType ):
