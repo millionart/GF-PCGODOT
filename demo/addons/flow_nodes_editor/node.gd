@@ -216,6 +216,22 @@ func _get_category_hue() -> float:
 	# Fallback: hash-based
 	return float(t.hash() % 360) / 360.0
 
+func _clear_graph_node_stylebox_overrides():
+	remove_theme_stylebox_override("panel")
+	remove_theme_stylebox_override("panel_selected")
+	remove_theme_stylebox_override("titlebar")
+	remove_theme_stylebox_override("titlebar_selected")
+
+func _make_tinted_graph_node_stylebox(style_name: String, bg_color: Color):
+	if not has_theme_stylebox(style_name):
+		return null
+
+	var style = get_theme_stylebox(style_name).duplicate()
+	if style is StyleBoxFlat:
+		style.bg_color = bg_color
+		return style
+	return null
+
 func update_node_style():
 	if node_template == "reroute":
 		custom_minimum_size = Vector2(28, 28)
@@ -230,119 +246,28 @@ func update_node_style():
 		add_theme_stylebox_override("titlebar_selected", empty_sb)
 		return
 
-	# Category-based node colors (like Unreal PCG)
+	_clear_graph_node_stylebox_overrides()
+
 	var cat_hue := _get_category_hue()
-	
+
 	var is_colored = false
 	var editor = getEditor()
 	if editor and "color_nodes" in editor and editor.color_nodes:
 		is_colored = true
-		
-	# Panel body always stays dark neutral — only titlebar gets category color
-	var panel_bg := Color("1b1e28")
-	var panel_selected_bg := Color("1b1e28")
-	var panel_border: Color
-	var panel_selected_border: Color
-	
-	if is_colored:
-		# Subtle colored left border accent
-		panel_border = Color.from_hsv(cat_hue, 0.4, 0.35, 0.7)
-		panel_selected_border = Color("22d3ee")
-	else:
-		panel_border = Color(1.0, 1.0, 1.0, 0.07)
-		panel_selected_border = Color("22d3ee")
-	
-	# Override border color for debug/inspect state indicators
-	if settings:
-		if settings.debug_enabled and settings.inspect_enabled:
-			panel_border = Color("22d3ee") # Cyan for both
-			panel_selected_border = Color("22d3ee")
-		elif settings.debug_enabled:
-			panel_border = Color(0.13, 0.72, 0.93, 0.6) # Subtle cyan
-			panel_selected_border = Color("22d3ee")
-		elif settings.inspect_enabled:
-			panel_border = Color(1.0, 0.85, 0.0, 0.6) # Subtle yellow
-			panel_selected_border = Color("fbbf24") # Yellow accent
 
-	# Titlebar colors — this is where category color shows
-	var title_bg: Color
-	var title_selected_bg: Color
-	
 	if is_colored:
-		title_bg = Color.from_hsv(cat_hue, 0.35, 0.22, 1.0)
-		title_selected_bg = Color.from_hsv(cat_hue, 0.4, 0.28, 1.0)
-	else:
-		title_bg = Color("252836")
-		title_selected_bg = Color("2e3244")
-		
-	# StyleBox Panel
-	var sb_panel = StyleBoxFlat.new()
-	sb_panel.bg_color = panel_bg
-	sb_panel.set_corner_radius_all(6) # Figma: 6px corner radius
-	sb_panel.set_border_width_all(1)
-	sb_panel.border_color = panel_border
-	sb_panel.shadow_size = 16 # Figma: 16px shadow
-	sb_panel.shadow_color = Color(0, 0, 0, 0.5)
-	sb_panel.content_margin_left = 14 # Figma: paddingLeft: 14
-	sb_panel.content_margin_right = 14 # Figma: paddingRight: 14
-	sb_panel.content_margin_top = 0 # Figma: no gap between title and first port
-	sb_panel.content_margin_bottom = 6 # Figma: 6px bottom padding
-	add_theme_stylebox_override("panel", sb_panel)
-	
-	# StyleBox Panel Selected
-	var sb_panel_selected = StyleBoxFlat.new()
-	sb_panel_selected.bg_color = panel_selected_bg
-	sb_panel_selected.set_corner_radius_all(6) # Figma: 6px corner radius
-	sb_panel_selected.set_border_width_all(2)
-	sb_panel_selected.border_color = panel_selected_border
-	sb_panel_selected.shadow_size = 28 # Figma: 28px shadow
-	sb_panel_selected.shadow_color = Color(0, 0, 0, 0.7)
-	sb_panel_selected.content_margin_left = 14
-	sb_panel_selected.content_margin_right = 14
-	sb_panel_selected.content_margin_top = 0
-	sb_panel_selected.content_margin_bottom = 6
-	add_theme_stylebox_override("panel_selected", sb_panel_selected)
-	
-	# StyleBox Titlebar
-	var sb_title = StyleBoxFlat.new()
-	sb_title.bg_color = title_bg
-	sb_title.corner_radius_top_left = 6 # Figma: 6px corner radius
-	sb_title.corner_radius_top_right = 6
-	sb_title.corner_radius_bottom_left = 0
-	sb_title.corner_radius_bottom_right = 0
-	sb_title.border_width_left = 0
-	sb_title.border_width_top = 0
-	sb_title.border_width_right = 0
-	sb_title.border_width_bottom = 1
-	sb_title.border_color = Color(1.0, 1.0, 1.0, 0.05) # Figma: borderBottom: "1px solid rgba(255,255,255,0.05)"
-	sb_title.content_margin_left = 10 # Figma: paddingLeft: 10
-	sb_title.content_margin_right = 10
-	sb_title.content_margin_top = 9 # Figma: 34px total header height
-	sb_title.content_margin_bottom = 9
-	add_theme_stylebox_override("titlebar", sb_title)
-	
-	# StyleBox Titlebar Selected
-	var sb_title_selected = StyleBoxFlat.new()
-	sb_title_selected.bg_color = title_selected_bg
-	sb_title_selected.corner_radius_top_left = 6 # Figma: 6px corner radius
-	sb_title_selected.corner_radius_top_right = 6
-	sb_title_selected.corner_radius_bottom_left = 0
-	sb_title_selected.corner_radius_bottom_right = 0
-	sb_title_selected.border_width_left = 0
-	sb_title_selected.border_width_top = 0
-	sb_title_selected.border_width_right = 0
-	sb_title_selected.border_width_bottom = 1
-	sb_title_selected.border_color = Color(1.0, 1.0, 1.0, 0.05)
-	sb_title_selected.content_margin_left = 10
-	sb_title_selected.content_margin_right = 10
-	sb_title_selected.content_margin_top = 9
-	sb_title_selected.content_margin_bottom = 9
-	add_theme_stylebox_override("titlebar_selected", sb_title_selected)
-	
+		var sb_title = _make_tinted_graph_node_stylebox("titlebar", Color.from_hsv(cat_hue, 0.35, 0.24, 1.0))
+		if sb_title:
+			add_theme_stylebox_override("titlebar", sb_title)
+
+		var sb_title_selected = _make_tinted_graph_node_stylebox("titlebar_selected", Color.from_hsv(cat_hue, 0.4, 0.30, 1.0))
+		if sb_title_selected:
+			add_theme_stylebox_override("titlebar_selected", sb_title_selected)
+
 	# Title text color overrides
 	add_theme_color_override("title_color", Color("cdd0dc")) # Figma title color
 	add_theme_color_override("title_selected_color", Color("ffffff"))
-	
+
 	var title_font = null
 	if has_theme_font("bold", "EditorFonts"):
 		title_font = get_theme_font("bold", "EditorFonts")
@@ -351,13 +276,10 @@ func update_node_style():
 	if title_font:
 		add_theme_font_override("title_font", title_font)
 	add_theme_font_size_override("title_font_size", 12)
-	
-	# Node width constraint (Figma NODE_WIDTH = 210)
+
 	custom_minimum_size.x = 210
-	
-	# Port vertical separation (Figma spacing)
 	add_theme_constant_override("separation", 4)
-	
+
 	self_modulate = Color.WHITE
 
 func _gui_input(event: InputEvent) -> void:
