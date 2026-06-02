@@ -1824,8 +1824,9 @@ func onNodePropertyChanged( prop_name : String):
 		elif inspected_node is FlowNodeBase and (inspected_node.node_template == "set_variable" or inspected_node.node_template == "get_variable"):
 			if inspected_node.node_template == "set_variable" and prop_name == "variable_name":
 				var variable_name := String(inspected_node.settings.variable_name).strip_edges()
-				var unique_variable_name := ensureSetVariableNameUnique(inspected_node)
-				if unique_variable_name != variable_name and inspector:
+				ensureSetVariableNameUnique(inspected_node)
+				_ensure_inspector()
+				if inspector:
 					inspector.edit(inspected_node)
 			if prop_name == "variable_name" or prop_name == "node_color":
 				refreshVariableNodes()
@@ -3327,6 +3328,22 @@ func getSetVariableNodes(variable_name: String = "", exclude_node: FlowNodeBase 
 		nodes.append(node)
 	return nodes
 
+func getGetVariableNodes(variable_name: String = "") -> Array[FlowNodeBase]:
+	var nodes : Array[FlowNodeBase] = []
+	var requested_name := variable_name.strip_edges()
+	if requested_name.is_empty():
+		return nodes
+	for node in getAllNodes():
+		if node.node_template != "get_variable" or not node.settings or not ("variable_name" in node.settings):
+			continue
+		var get_name := String(node.settings.variable_name).strip_edges()
+		if get_name == requested_name:
+			nodes.append(node)
+	nodes.sort_custom(func(a: FlowNodeBase, b: FlowNodeBase) -> bool:
+		return String(a.name) < String(b.name)
+	)
+	return nodes
+
 func _set_variable_name_exists(variable_name: String, exclude_node: FlowNodeBase = null) -> bool:
 	return not getSetVariableNodes(variable_name, exclude_node).is_empty()
 
@@ -3365,23 +3382,41 @@ func findSetVariableNode(variable_name: String) -> FlowNodeBase:
 		return node
 	return null
 
+func panToGraphNode(node: GraphNode, select_node: bool = false) -> bool:
+	if node == null or not is_instance_valid(node) or gedit == null:
+		return false
+	if select_node:
+		for selected_node in getSelectedNodes():
+			selected_node.selected = false
+		for selected_frame in getSelectedFrames():
+			selected_frame.selected = false
+		node.selected = true
+		inspected_node = node
+		_ensure_inspector()
+		if inspector:
+			inspector.edit(node)
+	node.visible = true
+	var target_center := node.position_offset + node.size * 0.5
+	gedit.scroll_offset = target_center * gedit.zoom - gedit.size * 0.5
+	return true
+
 func focusSetVariableNode(variable_name: String) -> bool:
 	var node := findSetVariableNode(variable_name)
 	if node == null:
 		update_status_bar("Set variable not found: %s" % variable_name)
 		return false
-
-	for selected_node in getSelectedNodes():
-		selected_node.selected = false
-	node.selected = true
-	node.visible = true
-	inspected_node = node
-	if inspector:
-		inspector.edit(node)
-
-	var target_center := node.position_offset + node.size * 0.5
-	gedit.scroll_offset = target_center * gedit.zoom - gedit.size * 0.5
+	panToGraphNode(node, true)
 	update_status_bar("Located set variable: %s" % variable_name)
+	return true
+
+func focusGetVariableNode(get_node: GraphNode) -> bool:
+	if get_node == null or not is_instance_valid(get_node):
+		return false
+	panToGraphNode(get_node, false)
+	var label := get_node.name
+	if get_node is FlowNodeBase and get_node.has_method("getTitle"):
+		label = String(get_node.call("getTitle"))
+	update_status_bar(FlowI18n.t("Located get: %s") % label)
 	return true
 
 func getSetVariableDefinitions() -> Array[Dictionary]:

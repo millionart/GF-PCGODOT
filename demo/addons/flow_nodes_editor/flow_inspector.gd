@@ -292,6 +292,9 @@ func _populate_node_properties(node: GraphNode, settings: Object):
 	if node is FlowNodeBase and node.node_template == "get_variable":
 		type_box.add_child(_create_row(FlowI18n.t("Source"), _create_get_variable_source_button(node, settings)))
 		has_custom_props = true
+	if node is FlowNodeBase and node.node_template == "set_variable":
+		_populate_set_variable_get_references(node as FlowNodeBase, settings, type_box)
+		has_custom_props = true
 			
 	if not has_custom_props:
 		var lbl_empty = Label.new()
@@ -809,6 +812,57 @@ func _create_variable_selector(node: GraphNode, settings: Object, prop_name: Str
 			node.refreshVariableChoices()
 	)
 	return opt
+
+func _populate_set_variable_get_references(node: FlowNodeBase, settings: Object, parent: VBoxContainer) -> void:
+	var variable_name := str(settings.get("variable_name")).strip_edges()
+	var section := VBoxContainer.new()
+	section.add_theme_constant_override("separation", 4)
+	parent.add_child(section)
+	var header := Label.new()
+	header.text = FlowI18n.t("Get nodes using this variable")
+	header.add_theme_font_size_override("font_size", 11)
+	header.add_theme_color_override("font_color", Color("a1a1aa"))
+	section.add_child(header)
+	if variable_name.is_empty():
+		var hint := Label.new()
+		hint.text = FlowI18n.t("Set a variable name first")
+		hint.add_theme_font_size_override("font_size", 11)
+		hint.add_theme_color_override("font_color", Color("71717a"))
+		section.add_child(hint)
+		return
+	var editor_instance: FlowEditor = null
+	if node.has_method("getEditor"):
+		editor_instance = node.getEditor() as FlowEditor
+	if editor_instance == null or not editor_instance.has_method("getGetVariableNodes"):
+		return
+	var get_nodes := editor_instance.getGetVariableNodes(variable_name)
+	if get_nodes.is_empty():
+		var empty := Label.new()
+		empty.text = FlowI18n.t("No get nodes use this variable")
+		empty.add_theme_font_size_override("font_size", 11)
+		empty.add_theme_color_override("font_color", Color("71717a"))
+		section.add_child(empty)
+		return
+	for get_node in get_nodes:
+		var row := HBoxContainer.new()
+		row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		section.add_child(row)
+		var btn := Button.new()
+		btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		btn.alignment = HORIZONTAL_ALIGNMENT_LEFT
+		btn.add_theme_font_size_override("font_size", 11)
+		if get_node.has_method("getTitle"):
+			btn.text = String(get_node.call("getTitle"))
+		else:
+			btn.text = String(get_node.name)
+		btn.tooltip_text = FlowI18n.t("Pan to this get node without changing selection")
+		btn.disabled = not editor_instance.has_method("focusGetVariableNode")
+		var target := get_node
+		btn.pressed.connect(func():
+			if editor_instance and editor_instance.has_method("focusGetVariableNode"):
+				editor_instance.focusGetVariableNode(target)
+		)
+		row.add_child(btn)
 
 func _create_get_variable_source_button(node: GraphNode, settings: Object) -> Button:
 	var btn = Button.new()
