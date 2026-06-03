@@ -29,6 +29,10 @@ var current_port_index := 0
 var is_output : bool = true
 
 var container
+var _flow_editor: FlowEditor
+
+func set_flow_editor(editor: FlowEditor) -> void:
+	_flow_editor = editor
 
 func setNode( new_node : FlowNodeBase ):
 	# If there was already one active... disabled it
@@ -232,6 +236,87 @@ func onCellClicked( row : int, col : int ):
 			node.debug_row = row
 		node.setupDrawDebug()
 
+func _get_row_world_position(real_row: int) -> Variant:
+	if data == null or real_row < 0 or real_row >= data.size():
+		return null
+	if data.hasStream(FlowData.AttrPosition):
+		var positions := data.getVector3Container(FlowData.AttrPosition)
+		if real_row < positions.size():
+			return positions[real_row]
+	var transforms := data.getTransformsStream()
+	if transforms != null and real_row < transforms.positions.size():
+		return transforms.positions[real_row]
+	return null
+
+func _on_table_row_double_clicked(row: int) -> void:
+	if row < 0:
+		return
+	onCellClicked(row, 0)
+	if row >= visible_rows.size():
+		return
+	var world_position := _get_row_world_position(visible_rows[row])
+	if world_position == null:
+		return
+	var editor := _get_flow_editor()
+	if editor and editor.has_method("focus_viewport_on_point"):
+		editor.focus_viewport_on_point(world_position)
+
+func _get_flow_editor() -> FlowEditor:
+	if _flow_editor != null:
+		return _flow_editor
+	if node and node.has_method("getEditor"):
+		var from_node = node.getEditor()
+		if from_node is FlowEditor:
+			return from_node as FlowEditor
+	var current: Node = self
+	while current:
+		if current is FlowEditor:
+			return current as FlowEditor
+		current = current.get_parent()
+	return null
+
+func mcp_simulate_click_at_global(global_pos: Vector2, double_click: bool) -> Dictionary:
+	if not tv:
+		return {"ok": false, "error": "TableView not ready"}
+	var scroll: Control = tv.get_node_or_null("ScrollContainer") as Control
+	if scroll == null:
+		return {"ok": false, "error": "ScrollContainer missing"}
+	var local_pos: Vector2 = scroll.get_global_transform_with_canvas().affine_inverse() * global_pos
+	if not scroll.get_global_rect().has_point(global_pos):
+		return {"ok": false, "error": "global position outside table scroll area", "global_pos": global_pos}
+	var row := tv._row_at_local_position(local_pos, true)
+	if row < 0:
+		return {"ok": false, "error": "no row at position", "local_pos": local_pos}
+	if double_click:
+		_on_table_row_double_clicked(row)
+	else:
+		onCellClicked(row, 0)
+	return {
+		"ok": true,
+		"row": row,
+		"local_pos": local_pos,
+		"double_click": double_click,
+		"real_row": visible_rows[row] if row < visible_rows.size() else row,
+	}
+
+func mcp_simulate_row_double_click(row: int) -> Dictionary:
+	if row < 0:
+		return {"ok": false, "error": "row must be >= 0"}
+	if not tv:
+		return {"ok": false, "error": "TableView not ready"}
+	if row >= visible_rows.size():
+		return {"ok": false, "error": "row out of range", "visible_rows": visible_rows.size()}
+	var world_position := _get_row_world_position(visible_rows[row])
+	if world_position == null:
+		return {"ok": false, "error": "no world position for row", "real_row": visible_rows[row]}
+	_on_table_row_double_clicked(row)
+	return {
+		"ok": true,
+		"row": row,
+		"real_row": visible_rows[row],
+		"world_position": world_position,
+	}
+
 func update_visible_rows(filter_text : String):
 	visible_rows.clear()
 	if data == null:
@@ -295,6 +380,8 @@ func _on_filter_edit_text_changed(new_text : String):
 
 func _ready():
 	tv.cell_clicked.connect( onCellClicked )
+	if not tv.row_double_clicked.is_connected(_on_table_row_double_clicked):
+		tv.row_double_clicked.connect(_on_table_row_double_clicked)
 	refresh_localized_text()
 	
 	# Style the header elements for a compact, polished look

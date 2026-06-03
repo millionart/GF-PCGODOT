@@ -117,7 +117,6 @@ var graph_loading_display_value := 0.0
 var graph_loading_sweep_offset := 0.0
 var graph_reload_in_progress := false
 var _variable_link_flash_tweens: Dictionary = {}
-
 const VARIABLE_LINK_FLASH_UP_SEC := 0.1
 const VARIABLE_LINK_FLASH_DOWN_SEC := 0.1
 const VARIABLE_LINK_FLASH_COUNT := 2
@@ -148,6 +147,223 @@ func ensureCurrentResource() -> FlowGraphResource:
 	new_resource.resource_name = "Untitled"
 	setResourceToEdit(new_resource, null)
 	return current_resource
+
+## Node3DEditorViewport::VIEW_CENTER_TO_SELECTION (node_3d_editor_plugin.h)
+const SPATIAL_VIEW_CENTER_TO_SELECTION := 7
+const VIEWPORT_FOCUS_MARKER_NAME := &"__FlowEditorViewportFocus"
+
+var _viewport_focus_marker: Marker3D
+var _pending_focus_world_position := Vector3.ZERO
+var _focus_restore_selection: Array[Node] = []
+
+## Moves the 3D editor orbit pivot to [param world_position] while keeping view direction and distance.
+## Engine path: focus_selection() sets cursor.pos only (distance unchanged). See node_3d_editor_plugin.cpp.
+func focus_viewport_on_point(world_position: Vector3) -> bool:
+	if not Engine.is_editor_hint():
+		return false
+	if not world_position.is_finite():
+		return false
+	EditorInterface.set_main_screen_editor("3D")
+	_pending_focus_world_position = world_position
+	call_deferred("_deferred_begin_viewport_focus")
+	return true
+
+func _deferred_begin_viewport_focus() -> void:
+	var marker := _ensure_viewport_focus_marker(_pending_focus_world_position)
+	if marker == null:
+		call_deferred("_deferred_apply_viewport_focus_without_selection")
+		return
+	var selection := EditorInterface.get_selection()
+	_focus_restore_selection = selection.get_selected_nodes()
+	selection.clear()
+	selection.add_node(marker)
+	call_deferred("_deferred_apply_viewport_focus")
+
+func _deferred_apply_viewport_focus_without_selection() -> void:
+	_focus_viewport_via_camera_basis(_pending_focus_world_position)
+
+
+func _deferred_apply_viewport_focus() -> void:
+	if not _invoke_spatial_editor_focus_selection():
+		_focus_viewport_via_camera_basis(_pending_focus_world_position)
+		call_deferred("_deferred_finish_viewport_focus")
+	else:
+		call_deferred("_deferred_verify_viewport_focus_alignment")
+
+
+func _deferred_verify_viewport_focus_alignment() -> void:
+	var measure := mcp_measure_focus_alignment(_pending_focus_world_position)
+	if float(measure.get("alignment_error", 0.0)) > 2.0:
+		_focus_viewport_via_camera_basis(_pending_focus_world_position)
+	call_deferred("_deferred_finish_viewport_focus")
+
+func _deferred_finish_viewport_focus() -> void:
+	var selection := EditorInterface.get_selection()
+	selection.clear()
+	for node in _focus_restore_selection:
+		if is_instance_valid(node):
+			selection.add_node(node)
+	_focus_restore_selection.clear()
+
+func _ensure_viewport_focus_marker(world_position: Vector3) -> Marker3D:
+	var parent: Node = find_debug_world_node()
+	if parent == null:
+		parent = EditorInterface.get_edited_scene_root()
+	if parent == null:
+		return null
+	if _viewport_focus_marker == null or not is_instance_valid(_viewport_focus_marker):
+		var existing := parent.get_node_or_null(NodePath(str(VIEWPORT_FOCUS_MARKER_NAME)))
+		if existing is Marker3D:
+			_viewport_focus_marker = existing
+		else:
+			_viewport_focus_marker = Marker3D.new()
+			_viewport_focus_marker.name = String(VIEWPORT_FOCUS_MARKER_NAME)
+			parent.add_child(_viewport_focus_marker)
+			if Engine.is_editor_hint() and parent == EditorInterface.get_edited_scene_root():
+				_viewport_focus_marker.owner = parent
+	_viewport_focus_marker.visible = false
+	_viewport_focus_marker.global_position = world_position
+	return _viewport_focus_marker
+
+func _invoke_spatial_editor_focus_selection() -> bool:
+	var spatial_viewport := _find_visible_spatial_editor_viewport()
+	if spatial_viewport == null:
+		return false
+	# focus_selection is not exposed to ClassDB; _menu_option(VIEW_CENTER_TO_SELECTION) is the F-key path.
+	if spatial_viewport.has_method("_menu_option"):
+		spatial_viewport.call("_menu_option", SPATIAL_VIEW_CENTER_TO_SELECTION)
+		return true
+	var surface := _find_spatial_viewport_surface(spatial_viewport)
+	if surface == null:
+		return false
+	surface.grab_focus()
+	var shortcut: Shortcut = EditorInterface.get_editor_settings().get_shortcut("spatial_editor/focus_selection")
+	if shortcut == null:
+		return false
+	for event in shortcut.events:
+		if event is InputEventKey:
+			var pressed_event := event.duplicate() as InputEventKey
+			pressed_event.pressed = true
+			surface.gui_input.emit(pressed_event)
+			var released_event := event.duplicate() as InputEventKey
+			released_event.pressed = false
+			surface.gui_input.emit(released_event)
+			return true
+	return false
+
+## Fallback when selection focus is unavailable: preserve camera basis, estimate orbit depth to target.
+func _focus_viewport_via_camera_basis(world_position: Vector3) -> void:
+	var camera := _get_active_spatial_editor_camera()
+	if camera == null:
+		return
+	var xf := camera.global_transform
+	var z_axis := xf.basis.z
+	var distance := (xf.origin - world_position).dot(z_axis)
+	if distance < 0.5:
+		distance = maxf(8.0, xf.origin.distance_to(world_position))
+	camera.global_transform = Transform3D(xf.basis, world_position + z_axis * distance)
+
+## MCP / tests: read spatial editor camera and estimated orbit pivot.
+func mcp_get_spatial_editor_camera_state() -> Dictionary:
+	if not Engine.is_editor_hint():
+		return {"ok": false, "error": "editor only"}
+	var camera := _get_active_spatial_editor_camera()
+	if camera == null:
+		return {"ok": false, "error": "no editor camera"}
+	var xf := camera.global_transform
+	return {
+		"ok": true,
+		"camera_origin": xf.origin,
+		"camera_basis_z": xf.basis.z,
+		"camera_basis_y": xf.basis.y,
+	}
+
+## MCP: queue focus; call [method mcp_measure_focus_alignment] after ~2 editor frames.
+func mcp_focus_point_and_measure(world_position: Vector3) -> Dictionary:
+	if not world_position.is_finite():
+		return {"ok": false, "error": "invalid position"}
+	var before := mcp_get_spatial_editor_camera_state()
+	var invoked := focus_viewport_on_point(world_position)
+	return {
+		"ok": invoked,
+		"target": world_position,
+		"before": before,
+		"note": "Call mcp_measure_focus_alignment with the same target after two process frames.",
+	}
+
+func mcp_measure_focus_alignment(target: Vector3) -> Dictionary:
+	var camera := _get_active_spatial_editor_camera()
+	if camera == null:
+		return {"ok": false, "error": "no editor camera"}
+	var viewport := EditorInterface.get_editor_viewport_3d(0)
+	if viewport == null:
+		return {"ok": false, "error": "no editor viewport"}
+	var center := viewport.size * 0.5
+	var ray_origin := camera.project_ray_origin(center)
+	var ray_dir := camera.project_ray_normal(center)
+	var closest := ray_origin + ray_dir * ray_dir.dot(target - ray_origin)
+	var alignment_error := closest.distance_to(target)
+	var depth := (camera.global_position - target).dot(camera.global_transform.basis.z)
+	return {
+		"ok": true,
+		"target": target,
+		"alignment_error": alignment_error,
+		"orbit_depth": depth,
+		"camera_origin": camera.global_position,
+	}
+
+func _get_active_spatial_editor_camera() -> Camera3D:
+	var spatial_viewport := _find_visible_spatial_editor_viewport()
+	if spatial_viewport != null and spatial_viewport.has_method("get_camera_3d"):
+		var viewport_camera: Camera3D = spatial_viewport.get_camera_3d()
+		if viewport_camera != null:
+			return viewport_camera
+	for idx in range(4):
+		var subviewport := EditorInterface.get_editor_viewport_3d(idx)
+		if subviewport == null:
+			continue
+		var camera := subviewport.get_camera_3d()
+		if camera != null:
+			return camera
+	return null
+
+func _find_visible_spatial_editor_viewport() -> Node:
+	var root := EditorInterface.get_editor_main_screen()
+	return _find_visible_spatial_editor_viewport_descendant(root)
+
+func _find_visible_spatial_editor_viewport_descendant(root: Node) -> Node:
+	if root.get_class() == "Node3DEditorViewport" and (root as Control).is_visible_in_tree():
+		return root
+	for child in root.get_children():
+		var match := _find_visible_spatial_editor_viewport_descendant(child)
+		if match != null:
+			return match
+	return null
+
+func _find_spatial_viewport_surface(spatial_viewport: Node) -> Control:
+	var children := spatial_viewport.get_children()
+	if children.size() >= 2 and children[1] is Control:
+		return children[1] as Control
+	return null
+
+func _find_editor_node_by_class(node_class: String) -> Node:
+	var main_screen := EditorInterface.get_editor_main_screen()
+	var found := _find_descendant_by_class(main_screen, node_class)
+	if found:
+		return found
+	var root := EditorInterface.get_base_control()
+	while root.get_parent():
+		root = root.get_parent()
+	return _find_descendant_by_class(root, node_class)
+
+func _find_descendant_by_class(root: Node, node_class: String) -> Node:
+	if root.get_class() == node_class:
+		return root
+	for child in root.get_children():
+		var match := _find_descendant_by_class(child, node_class)
+		if match:
+			return match
+	return null
 
 func find_debug_world_node() -> Node3D:
 	if resource_owner != null and resource_owner is Node3D:
@@ -1691,6 +1907,8 @@ func _setup_inline_analyze_panel():
 	gedit.add_child(panel)
 	analyze_panel = panel
 	data_inspector = inline_inspector
+	if inline_inspector.has_method("set_flow_editor"):
+		inline_inspector.set_flow_editor(self)
 	
 	# Add resize handle to the top edge
 	_setup_analyze_resize_handle(panel)
@@ -1704,7 +1922,7 @@ const ANALYZE_MAX_HEIGHT_RATIO := 0.85
 func _setup_analyze_resize_handle(panel: Control):
 	var handle := Control.new()
 	handle.name = "ResizeHandle"
-	handle.mouse_filter = Control.MOUSE_FILTER_STOP
+	handle.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	handle.mouse_default_cursor_shape = Control.CURSOR_VSIZE
 	handle.anchor_left = 0.0
 	handle.anchor_right = 1.0
@@ -1725,22 +1943,28 @@ func _setup_analyze_resize_handle(panel: Control):
 	)
 	panel.add_child(handle)
 	
-	handle.gui_input.connect(func(event: InputEvent):
+	panel.gui_input.connect(func(event: InputEvent):
+		if not (event is InputEventMouseButton or event is InputEventMouseMotion):
+			return
+		var local_y := panel.get_local_mouse_position().y
+		if local_y > 12.0:
+			return
 		if event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT:
 			if event.pressed:
 				_analyze_drag_active = true
 				_analyze_drag_start_y = event.global_position.y
 				_analyze_drag_start_offset = analyze_panel.offset_top
+				panel.accept_event()
 			else:
 				_analyze_drag_active = false
 		elif event is InputEventMouseMotion and _analyze_drag_active:
 			var delta = event.global_position.y - _analyze_drag_start_y
 			var new_offset = _analyze_drag_start_offset + delta
-			# Clamp: min height and max height (ratio of parent)
 			var parent_h = gedit.size.y
 			var max_offset = -ANALYZE_MIN_HEIGHT
 			var min_offset = -(parent_h * ANALYZE_MAX_HEIGHT_RATIO)
 			analyze_panel.offset_top = clampf(new_offset, min_offset, max_offset)
+			panel.accept_event()
 	)
 
 func _set_analyze_panel_visible(visible: bool):
