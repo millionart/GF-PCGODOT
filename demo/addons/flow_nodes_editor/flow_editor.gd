@@ -102,7 +102,10 @@ var open_tabs: Array[Dictionary] = []
 var active_tab_index: int = -1
 var open_file_dialog: EditorFileDialog
 var save_file_dialog: EditorFileDialog
-var unsaved_close_dialog: AcceptDialog
+var unsaved_close_dialog: ConfirmationDialog
+var unsaved_close_discard_button: Button
+var pending_unsaved_close_tab_index: int = -1
+var save_dialog_closes_tab_index: int = -1
 var analyze_panel: Control
 var current_analyzed_node: FlowNodeBase
 var last_graph_open_dir := "res://graphs"
@@ -120,6 +123,7 @@ var _variable_link_flash_tweens: Dictionary = {}
 const VARIABLE_LINK_FLASH_UP_SEC := 0.1
 const VARIABLE_LINK_FLASH_DOWN_SEC := 0.1
 const VARIABLE_LINK_FLASH_COUNT := 2
+const EDITOR_TRANSLATION_DOMAIN := &"godot.editor"
 
 func _active_tab_is_valid() -> bool:
 	return active_tab_index >= 0 and active_tab_index < open_tabs.size()
@@ -138,6 +142,10 @@ func _set_tab_dirty(index: int, dirty: bool) -> void:
 func _set_current_graph_dirty(dirty: bool) -> void:
 	if _active_tab_is_valid():
 		_set_tab_dirty(active_tab_index, dirty)
+
+
+func _editor_translate(message: String) -> String:
+	return TranslationServer.get_or_add_domain(EDITOR_TRANSLATION_DOMAIN).translate(message)
 
 
 func _is_pristine_untitled_tab(index: int) -> bool:
@@ -623,29 +631,132 @@ func _show_save_graph_dialog():
 		save_file_dialog.add_filter("*.tres", "Flow Graph Resource")
 		save_file_dialog.add_filter("*.res", "Flow Graph Resource")
 		save_file_dialog.file_selected.connect(_on_graph_save_file_selected)
+		if not save_file_dialog.canceled.is_connected(_on_save_graph_dialog_canceled):
+			save_file_dialog.canceled.connect(_on_save_graph_dialog_canceled)
 		add_child(save_file_dialog)
 	save_file_dialog.current_dir = last_graph_open_dir
 	save_file_dialog.current_file = "untitled_flow_graph.tres"
 	save_file_dialog.popup_centered_ratio(0.4)
 
-func _show_unsaved_close_warning(index: int):
-	if not unsaved_close_dialog:
-		unsaved_close_dialog = AcceptDialog.new()
-		unsaved_close_dialog.title = FlowI18n.t("Unsaved Resource")
-		add_child(unsaved_close_dialog)
+
+func _on_save_graph_dialog_canceled() -> void:
+	save_dialog_closes_tab_index = -1
+
+
+func _ensure_unsaved_close_dialog() -> void:
+	if (
+		is_instance_valid(unsaved_close_dialog)
+		and unsaved_close_dialog is ConfirmationDialog
+		and is_instance_valid(unsaved_close_discard_button)
+	):
+		return
+	if is_instance_valid(unsaved_close_dialog):
+		unsaved_close_dialog.queue_free()
+	unsaved_close_dialog = null
+	unsaved_close_discard_button = null
+	unsaved_close_dialog = ConfirmationDialog.new()
+	unsaved_close_dialog.title = FlowI18n.t("Unsaved Resource")
+	unsaved_close_discard_button = unsaved_close_dialog.add_button(
+		_editor_translate("Don't Save"),
+		DisplayServer.get_swap_cancel_ok(),
+		"discard"
+	)
+	unsaved_close_dialog.min_size = Vector2(450.0, 0.0)
+	unsaved_close_dialog.confirmed.connect(_on_unsaved_close_save_and_close)
+	unsaved_close_dialog.custom_action.connect(_on_unsaved_close_custom_action)
+	unsaved_close_dialog.canceled.connect(_on_unsaved_close_canceled)
+	add_child(unsaved_close_dialog)
+
+
+func _apply_unsaved_close_dialog_translations() -> void:
+	if not is_instance_valid(unsaved_close_dialog):
+		return
+	unsaved_close_dialog.ok_button_text = _editor_translate("Save & Close")
+	if is_instance_valid(unsaved_close_discard_button):
+		unsaved_close_discard_button.text = _editor_translate("Don't Save")
+	var cancel_button := unsaved_close_dialog.get_cancel_button()
+	if cancel_button:
+		cancel_button.text = _editor_translate("Cancel")
+
+
+func _hide_unsaved_close_dialog() -> void:
+	if is_instance_valid(unsaved_close_dialog):
+		unsaved_close_dialog.hide()
+
+
+func _show_unsaved_close_warning(index: int) -> void:
+	if index < 0 or index >= open_tabs.size():
+		return
+	_ensure_unsaved_close_dialog()
+	_apply_unsaved_close_dialog_translations()
+	pending_unsaved_close_tab_index = index
 	var title := FlowI18n.t("Untitled / Unsaved")
-	if index >= 0 and index < open_tabs.size():
-		var tab_res = open_tabs[index].resource
-		if is_instance_valid(tab_res) and tab_res.resource_path != "":
-			title = tab_res.resource_path.get_file()
-	unsaved_close_dialog.dialog_text = FlowI18n.t("Save the graph before closing it:") + "\n" + title
+	var tab_res := open_tabs[index].resource as FlowGraphResource
+	if is_instance_valid(tab_res) and tab_res.resource_path != "":
+		title = tab_res.resource_path.get_file()
+	elif open_tabs[index].owner:
+		title = String(open_tabs[index].owner.name)
+	unsaved_close_dialog.dialog_text = (
+		FlowI18n.t("Save the graph before closing it:")
+		+ "\n"
+		+ title
+		+ "\n\n"
+		+ _editor_translate("Save before closing?")
+	)
+	unsaved_close_dialog.reset_size()
 	unsaved_close_dialog.popup_centered()
+
+
+func _on_unsaved_close_canceled() -> void:
+	pending_unsaved_close_tab_index = -1
+	_hide_unsaved_close_dialog()
+
+
+func _on_unsaved_close_custom_action(action: StringName) -> void:
+	if action != "discard":
+		return
+	var index := pending_unsaved_close_tab_index
+	pending_unsaved_close_tab_index = -1
+	_hide_unsaved_close_dialog()
+	if index >= 0:
+		_close_tab_at_index(index)
+
+
+func _on_unsaved_close_save_and_close() -> void:
+	var index := pending_unsaved_close_tab_index
+	pending_unsaved_close_tab_index = -1
+	_hide_unsaved_close_dialog()
+	if index >= 0:
+		_begin_save_and_close_tab(index)
+
+
+func _begin_save_and_close_tab(index: int) -> void:
+	if index < 0 or index >= open_tabs.size():
+		return
+	if index != active_tab_index:
+		_switch_to_tab(index)
+	var tab_res := open_tabs[index].resource as FlowGraphResource
+	if not is_instance_valid(tab_res):
+		_close_tab_at_index(index)
+		return
+	if tab_res.resource_path.is_empty():
+		save_dialog_closes_tab_index = index
+		_show_save_graph_dialog()
+		return
+	if _save_current_resource_to_path(tab_res.resource_path):
+		_close_tab_at_index(index)
+
 
 func _on_graph_file_selected(path: String):
 	await _open_graph_file_with_loading(path)
 
-func _on_graph_save_file_selected(path: String):
-	_save_current_resource_to_path(path)
+func _on_graph_save_file_selected(path: String) -> void:
+	var close_index := save_dialog_closes_tab_index
+	save_dialog_closes_tab_index = -1
+	if not _save_current_resource_to_path(path):
+		return
+	if close_index >= 0:
+		_close_tab_at_index(close_index)
 
 func _open_graph_file_with_loading(path: String) -> void:
 	_set_graph_loading_progress("Opening Graph...", 5.0)
