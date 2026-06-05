@@ -5235,6 +5235,8 @@ func _graph_has_uncacheable_eval_cache_nodes(graph: FlowGraphResource, visited =
 		if not (node_data is Dictionary):
 			continue
 		var template_name := String(node_data.get("template", ""))
+		if template_name == "output" or template_name.begins_with("output_"):
+			continue
 		var metadata := _eval_cache_metadata_for_template(template_name)
 		if _is_uncacheable_eval_template(template_name, metadata):
 			return true

@@ -101,13 +101,13 @@ func onColumnBegins( cell : DataTableContainer.CellContents ):
 	# col = 0 is for the Index
 	var data_col = cell.col - 1
 	if data_col >= col_streams_names.size():
-		tv.cell_contents = null
+		tv.setCellCallback(Callable())
 		return
 		
 	var stream_name = col_streams_names[ data_col ]
 	var stream = data.streams.get( stream_name, null )
 	if !stream:
-		tv.cell_contents = null
+		tv.setCellCallback(Callable())
 		return
 	container = stream.container
 		
