@@ -707,20 +707,26 @@ static func evaluate_graph(graph: FlowGraphResource, input_data_map: Dictionary,
 	for n_data in graph.data.get("nodes", []):
 		var template = n_data.template
 		var name = n_data.name
-		var script_path = FlowNodeRegistry.get_node_script_path(template)
-		if script_path.is_empty():
-			push_error("Failed to resolve node script for template: %s. Make sure its provider addon registered its node directory before evaluation." % template)
-			continue
-		var node_script = load(script_path)
+		var meta: Dictionary = FlowNodeRegistry.get_node_metadata(template)
+		var node_script: Script = meta.get("factory", null) as Script
+		if node_script == null:
+			var script_path = FlowNodeRegistry.get_node_script_path(template)
+			if script_path.is_empty():
+				push_error("Failed to resolve node script for template: %s. Make sure its provider addon registered its node directory before evaluation." % template)
+				continue
+			node_script = load(script_path)
 		if not node_script:
 			push_error("Failed to load node script for template: %s" % template)
 			continue
 		var instance = node_script.new() as FlowNodeBase
 		instance.name = name
 		instance.node_template = template
+		if not meta.is_empty() and instance.has_method("setup_from_flow_node_metadata"):
+			instance.call("setup_from_flow_node_metadata", template, meta)
 		
 		# Initialize settings resource if defined
-		var meta = instance.getMeta()
+		if meta.is_empty():
+			meta = instance.getMeta()
 		if meta.has("settings") and meta.settings:
 			instance.settings = meta.settings.new()
 		

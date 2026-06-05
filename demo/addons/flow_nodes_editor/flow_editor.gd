@@ -82,6 +82,7 @@ var track_external_edits : bool = true
 var ui_scale = 1.0
 var node_types = { }
 var node_registry_version := -1
+var node_types_full_scan := false
 
 var popup_menu_inputs : PopupMenu
 var popup_menu_outputs : PopupMenu
@@ -552,7 +553,7 @@ func _switch_to_tab(index: int, new_owner = null):
 	
 	_clear_ui_nodes()
 	
-	scanAvailableNodesIfNeeded()
+	_prepare_node_types_for_graph_load()
 	FlowNodeIO.loadFromResource( self )
 	repair_graph_integrity()
 	
@@ -567,6 +568,20 @@ func _switch_to_tab(index: int, new_owner = null):
 	_update_tab_titles()
 		
 	update_status_bar()
+
+
+func _resource_has_serialized_nodes(resource: FlowGraphResource) -> bool:
+	if resource == null or resource.data == null:
+		return false
+	var nodes: Array = resource.data.get("nodes", [])
+	return not nodes.is_empty()
+
+
+func _prepare_node_types_for_graph_load() -> void:
+	node_registry_version = FlowNodeRegistry.get_version()
+	if node_types.is_empty():
+		node_types_full_scan = false
+	_register_graph_dynamic_node_types()
 
 func _on_tab_changed(index: int):
 	if index >= 0 and index < open_tabs.size() and index != active_tab_index:
@@ -846,8 +861,8 @@ func _switch_to_tab_with_loading(index: int, new_owner = null) -> void:
 	_set_graph_loading_progress("Clearing Graph...", 34.0)
 	_clear_ui_nodes()
 
-	_set_graph_loading_progress("Scanning Nodes...", 42.0)
-	scanAvailableNodesIfNeeded()
+	_set_graph_loading_progress("Preparing Nodes...", 42.0)
+	_prepare_node_types_for_graph_load()
 
 	var use_fast_graph_load := _should_use_fast_graph_load(current_resource)
 	if use_fast_graph_load:
@@ -1080,7 +1095,8 @@ func _on_filesystem_changed():
 	if resource_stale:
 		# Rebuild the UI from the fresh resource
 		_clear_ui_nodes()
-		scanAvailableNodes(true)
+		node_types.clear()
+		_prepare_node_types_for_graph_load()
 		FlowNodeIO.loadFromResource(self)
 		ctx.graph = current_resource
 		ctx.owner = resource_owner
@@ -1251,6 +1267,45 @@ func registerNodeType(node_type_name: String, file_name: String, base_directory:
 			push_warning("Node template '%s' from %s overrides %s" % [node_type_name, full_res_path, existing_path])
 	node_types[ node_type_name ] = meta
 
+
+func registerNodeMetadata(node_type_name: String, metadata: Dictionary, force_reload: bool = false) -> void:
+	if metadata.is_empty():
+		return
+	var registered_metadata := metadata.duplicate()
+	var full_res_path := str(
+		registered_metadata.get("full_res_path", registered_metadata.get("factory_path", ""))
+	)
+	var loaded_class := registered_metadata.get("factory", null) as Script
+	if loaded_class == null:
+		if full_res_path.is_empty() or not ResourceLoader.exists(full_res_path, "Script"):
+			push_warning("Skipping provider node without factory script %s" % node_type_name)
+			return
+		var cache_mode := ResourceLoader.CACHE_MODE_REPLACE if force_reload else ResourceLoader.CACHE_MODE_REUSE
+		loaded_class = ResourceLoader.load(full_res_path, "Script", cache_mode) as Script
+	if loaded_class != null and not loaded_class.can_instantiate() and not full_res_path.is_empty():
+		var reload_err := loaded_class.reload(false)
+		if reload_err != OK or not loaded_class.can_instantiate():
+			var cache_mode := ResourceLoader.CACHE_MODE_REPLACE if force_reload else ResourceLoader.CACHE_MODE_REUSE
+			loaded_class = ResourceLoader.load(full_res_path, "Script", cache_mode) as Script
+			if loaded_class != null and not loaded_class.can_instantiate():
+				loaded_class.reload(false)
+	if loaded_class == null or not loaded_class.can_instantiate():
+		push_error("Provider node script %s failed to load" % full_res_path)
+		return
+	registered_metadata.factory = loaded_class
+	if not full_res_path.is_empty():
+		registered_metadata.full_res_path = full_res_path
+		registered_metadata.last_modified_time = FileAccess.get_modified_time(full_res_path)
+	if node_types.has(node_type_name):
+		var existing_path := String(node_types[node_type_name].get("full_res_path", ""))
+		if existing_path != full_res_path:
+			push_warning(
+				"Node template '%s' from %s overrides %s"
+				% [node_type_name, full_res_path, existing_path]
+			)
+	node_types[node_type_name] = registered_metadata
+
+
 func registerInputNodeType( input ):
 	var node_type_name := "input_%s" % input.name
 	registerNodeType( node_type_name, "input.gd")
@@ -1267,8 +1322,13 @@ func ensureNodeTypeRegistered(node_template: String) -> bool:
 	elif node_template.begins_with("output_"):
 		registerNodeType(node_template, "output.gd")
 	else:
-		var script_path := FlowNodeRegistry.get_node_script_path(node_template)
-		if not script_path.is_empty():
+		var metadata := FlowNodeRegistry.get_node_metadata(node_template)
+		if not metadata.is_empty():
+			registerNodeMetadata(node_template, metadata)
+		else:
+			var script_path := FlowNodeRegistry.get_node_script_path(node_template)
+			if script_path.is_empty():
+				return false
 			registerNodeType(node_template, script_path.get_file(), script_path.get_base_dir())
 	return node_types.has(node_template)
 
@@ -1290,17 +1350,31 @@ func normalizeDynamicNodeTemplate(node: FlowNodeBase) -> void:
 
 func scanAvailableNodesIfNeeded(force: bool = false) -> void:
 	var registry_version := FlowNodeRegistry.get_version()
-	if not force and node_registry_version == registry_version and not node_types.is_empty():
+	if (
+		not force
+		and node_types_full_scan
+		and node_registry_version == registry_version
+		and not node_types.is_empty()
+	):
 		_register_graph_dynamic_node_types()
 		return
 	scanAvailableNodes()
 
 func scanAvailableNodes(force: bool = false):
-	if not force and not node_types.is_empty() and node_registry_version == FlowNodeRegistry.get_version():
+	if (
+		not force
+		and node_types_full_scan
+		and not node_types.is_empty()
+		and node_registry_version == FlowNodeRegistry.get_version()
+	):
 		_register_graph_dynamic_node_types()
 		return
 	node_types.clear()
+	node_types_full_scan = false
 	node_registry_version = FlowNodeRegistry.get_version()
+	for template_name in FlowNodeRegistry.get_node_metadata_entries().keys():
+		var metadata: Dictionary = FlowNodeRegistry.get_node_metadata(template_name)
+		registerNodeMetadata(str(template_name), metadata, force)
 	for node_directory in FlowNodeRegistry.get_node_directories():
 		var files : PackedStringArray
 		var dir := DirAccess.open(node_directory)
@@ -1323,6 +1397,7 @@ func scanAvailableNodes(force: bool = false):
 			registerNodeType( stem, file, node_directory, force )
 
 	_register_graph_dynamic_node_types()
+	node_types_full_scan = true
 
 func _register_graph_dynamic_node_types() -> void:
 	if not current_resource:
@@ -1362,6 +1437,7 @@ func populatePopupOutputsMenu():
 		popup_menu_outputs.set_item_disabled(0, true)
 
 func populatePopupMenu() -> PopupMenu:
+	scanAvailableNodesIfNeeded()
 	min_id = 1000
 	max_id = min_id
 	menu_ids = {}
@@ -1509,7 +1585,6 @@ func _ready():
 	if dpi > 150:
 		ui_scale *= 2.0
 				
-	scanAvailableNodes()
 	_chrome_refs = FlowEditorChrome.Refs.new()
 	_chrome_refs.host = self
 	_chrome_refs.tab_bar = tab_bar
@@ -2674,6 +2749,8 @@ func addNodeFromTemplate( node_template, node_name : String, settings = null, in
 	node.set_script(meta.factory)
 
 	node.node_template = node_template
+	if node.has_method("setup_from_flow_node_metadata"):
+		node.call("setup_from_flow_node_metadata", node_template, meta)
 	node.name = node_name
 	node.ui_scale = ui_scale
 	node.position_offset = localToGraphCoords(local_drop_position)
@@ -3433,6 +3510,7 @@ func _on_graph_edit_popup_request(at_position):
 
 func _open_graph_context_menu(at_position: Vector2):
 	local_drop_position = at_position
+	scanAvailableNodesIfNeeded()
 	
 	if popup_on_over_input:
 		var node = popup_on_over_input.getNode()
@@ -4743,7 +4821,7 @@ func _reload_current_graph_with_loading() -> void:
 	if graph_reload_in_progress:
 		return
 	if not current_resource:
-		scanAvailableNodesIfNeeded()
+		node_registry_version = FlowNodeRegistry.get_version()
 		return
 
 	graph_reload_in_progress = true
@@ -4751,8 +4829,8 @@ func _reload_current_graph_with_loading() -> void:
 	await get_tree().process_frame
 	_set_graph_loading_progress("Refreshing Resource...", 18.0)
 	_refresh_active_tab_resource_from_disk()
-	_set_graph_loading_progress("Scanning Nodes...", 24.0)
-	scanAvailableNodesIfNeeded()
+	_set_graph_loading_progress("Preparing Nodes...", 24.0)
+	_prepare_node_types_for_graph_load()
 	_set_graph_loading_progress("Clearing Graph...", 34.0)
 	_clear_ui_nodes()
 	if _should_use_fast_graph_load(current_resource):
@@ -4777,7 +4855,16 @@ func _reload_current_graph_with_loading() -> void:
 func _on_node_registry_changed() -> void:
 	if current_resource and save_pending:
 		saveResource()
-	scanAvailableNodes(true)
+	if node_types.is_empty() and (
+		current_resource == null or not _resource_has_serialized_nodes(current_resource)
+	):
+		node_registry_version = FlowNodeRegistry.get_version()
+		node_types_full_scan = false
+		_register_graph_dynamic_node_types()
+		return
+	node_types.clear()
+	node_types_full_scan = false
+	_prepare_node_types_for_graph_load()
 	if not current_resource:
 		return
 	_clear_ui_nodes()
