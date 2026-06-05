@@ -77,11 +77,7 @@ func _exit_tree():
 				editor.current_resource.in_params_changed.disconnect(_on_in_params_changed)
 
 func _on_in_params_changed():
-	var editor = getEditor()
-	if editor and editor.has_method("refreshGraphParameterNodeFromSignal"):
-		editor.refreshGraphParameterNodeFromSignal(self)
-		return
-	initFromScript()
+	refreshFromParameterSignal()
 
 func initFromScript():
 	super.initFromScript()

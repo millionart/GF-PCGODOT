@@ -637,6 +637,13 @@ func getEditor():
 	var flow_editor = gedit.get_parent_control().get_parent_control().get_parent_control() as Control if gedit else null
 	return flow_editor
 
+func refreshFromParameterSignal():
+	var editor = getEditor()
+	if editor and editor.has_method("refreshGraphParameterNodeFromSignal"):
+		editor.refreshGraphParameterNodeFromSignal(self)
+		return
+	initFromScript()
+
 func initFromScript():
 	var meta := getMeta()
 	var trace = meta.get( "trace", false )

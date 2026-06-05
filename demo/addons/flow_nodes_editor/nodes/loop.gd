@@ -30,7 +30,7 @@ func _connect_graph(graph: FlowGraphResource):
 			_connected_graph.in_params_changed.connect(_on_graph_params_changed)
 
 func _on_graph_params_changed():
-	initFromScript()
+	refreshFromParameterSignal()
 
 func getMeta() -> Dictionary:
 	var ins = [{ "label" : "Stream", "data_type" : FlowData.DataType.Invalid }]
