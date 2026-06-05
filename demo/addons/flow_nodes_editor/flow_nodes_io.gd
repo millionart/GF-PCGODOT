@@ -6,11 +6,17 @@ class_name FlowNodeIO
 
 const LOAD_PROGRESS_CHUNK_SIZE := 8
 const FAST_GRAPH_LOAD_NODE_THRESHOLD := 24
+const TRANSIENT_SETTINGS_PROPS := {
+	"debug_enabled": true,
+	"inspect_enabled": true,
+}
 
 static func resource_to_dict(resource: Resource) -> Dictionary:
 	var dict := {}
 	for prop in resource.get_property_list():
 		if prop.name in FlowNodeAssets.discardted_props:
+			continue
+		if TRANSIENT_SETTINGS_PROPS.has(String(prop.name)):
 			continue
 		if prop.usage & PROPERTY_USAGE_STORAGE != 0:
 			var name = prop.name
@@ -49,6 +55,8 @@ static func dict_to_resource(data: Dictionary, resource: Resource) -> void:
 	for prop in resource.get_property_list():
 		var name = prop.name
 		if name in FlowNodeAssets.discardted_props:
+			continue
+		if TRANSIENT_SETTINGS_PROPS.has(String(name)):
 			continue
 		if not data.has(name):
 			continue
@@ -252,6 +260,8 @@ static func create_nodes_from_dict( dict, editor : Control, paste_offset = null)
 		
 		# Never inport the inspect_enabled
 		node.settings.inspect_enabled = false
+		if node.has_method("_sync_editor_state_snapshot"):
+			node.call("_sync_editor_state_snapshot")
 		
 		node.initFromScript();
 		
@@ -336,6 +346,8 @@ static func create_nodes_from_dict_with_progress(dict, editor: Control, paste_of
 		_normalize_loaded_node_template(node, editor)
 		_ensure_unique_set_variable_name(node, editor, variable_name_remaps)
 		node.settings.inspect_enabled = false
+		if node.has_method("_sync_editor_state_snapshot"):
+			node.call("_sync_editor_state_snapshot")
 
 		completed_steps += 1
 		if _should_report_load_progress(completed_steps, total_steps):
@@ -733,6 +745,10 @@ static func evaluate_graph(graph: FlowGraphResource, input_data_map: Dictionary,
 		# Apply saved settings
 		dict_to_resource(n_data.settings, instance.settings)
 		_stabilize_missing_seed(instance.settings, name, template, n_data.settings)
+		if instance.settings != null:
+			instance.settings.inspect_enabled = false
+			if instance.has_method("_sync_editor_state_snapshot"):
+				instance.call("_sync_editor_state_snapshot")
 		
 		instance.refreshFromSettings()
 		

@@ -2603,8 +2603,8 @@ func _set_node_debug_enabled(
 	if flow_node == null or flow_node.settings == null:
 		return
 	flow_node.settings.debug_enabled = debug_enabled
-	if flow_node.has_method("_sync_debug_enabled_snapshot"):
-		flow_node.call("_sync_debug_enabled_snapshot")
+	if flow_node.has_method("_sync_editor_state_snapshot"):
+		flow_node.call("_sync_editor_state_snapshot")
 	flow_node.refreshFromSettings()
 	changed_nodes.append(flow_node)
 	names.append(flow_node.settings.title)
@@ -2617,14 +2617,18 @@ func _finish_debug_state_batch(prev_auto_regen: bool, changed_nodes: Array) -> v
 		return
 	_run_forced_graph_eval()
 
-func _on_node_debug_setting_changed(node: FlowNodeBase) -> void:
+func _on_node_display_state_changed(node: FlowNodeBase) -> void:
 	if node == null or node.settings == null:
 		return
-	if node.has_method("_sync_debug_enabled_snapshot"):
-		node.call("_sync_debug_enabled_snapshot")
+	if node.has_method("_sync_editor_state_snapshot"):
+		node.call("_sync_editor_state_snapshot")
 	node.refreshFromSettings()
-	var prev_auto_regen := _begin_debug_state_batch()
-	_finish_debug_state_batch(prev_auto_regen, [node])
+	if node.settings.debug_enabled:
+		var prev_auto_regen := _begin_debug_state_batch()
+		_finish_debug_state_batch(prev_auto_regen, [node])
+
+func _on_node_debug_setting_changed(node: FlowNodeBase) -> void:
+	_on_node_display_state_changed(node)
 
 func _try_refresh_debug_draw_from_existing_outputs(nodes: Array) -> bool:
 	if regen_pending or regen_running:
@@ -2644,18 +2648,7 @@ func _try_refresh_debug_draw_from_existing_outputs(nodes: Array) -> bool:
 	return true
 
 func _node_has_debug_drawable_output(node: FlowNodeBase) -> bool:
-	if node == null or node.settings == null:
-		return false
-	if node.dirty:
-		return false
-	if node.generated_bulks.is_empty():
-		return false
-	var bulk_index := clampi(node.settings.debug_bulk, 0, node.generated_bulks.size() - 1)
-	var bulk = node.generated_bulks[bulk_index]
-	if not (bulk is Array) or bulk.is_empty():
-		return false
-	var port_index := clampi(node.settings.debug_output, 0, bulk.size() - 1)
-	var out_data := bulk[port_index] as FlowData.Data
+	var out_data := _get_selected_output_data(node)
 	return out_data != null and out_data.hasStream(FlowData.AttrPosition)
 
 func _show_analyze_panel_for_node(node: FlowNodeBase) -> void:
@@ -2666,18 +2659,21 @@ func _show_analyze_panel_for_node(node: FlowNodeBase) -> void:
 	current_analyzed_node = node
 
 func _node_has_output_data(node: FlowNodeBase) -> bool:
+	return _get_selected_output_data(node) != null
+
+func _get_selected_output_data(node: FlowNodeBase) -> FlowData.Data:
 	if node == null or node.settings == null:
-		return false
+		return null
 	if node.dirty:
-		return false
+		return null
 	if node.generated_bulks.is_empty():
-		return false
+		return null
 	var bulk_index := clampi(node.settings.debug_bulk, 0, node.generated_bulks.size() - 1)
 	var bulk = node.generated_bulks[bulk_index]
 	if not (bulk is Array) or bulk.is_empty():
-		return false
+		return null
 	var port_index := clampi(node.settings.debug_output, 0, bulk.size() - 1)
-	return node.get_bulk_output(bulk_index, port_index) != null
+	return node.get_bulk_output(bulk_index, port_index)
 
 func _can_show_analyze_from_existing_outputs(node: FlowNodeBase) -> bool:
 	if not _node_has_output_data(node):
@@ -3061,9 +3057,11 @@ func onNodePropertyChanged( prop_name : String):
 		return
 	if inspected_node and inspected_node is GraphNode:
 		#print( "Node %s.%s has changed" % [ inspected_node.name, prop_name ])
-		if prop_name == "debug_enabled" and inspected_node is FlowNodeBase:
-			_on_node_debug_setting_changed(inspected_node)
-			queueSave()
+		if (
+			(prop_name == "debug_enabled" or prop_name == "inspect_enabled")
+			and inspected_node is FlowNodeBase
+		):
+			_on_node_display_state_changed(inspected_node)
 			return
 		inspected_node.onPropChanged( prop_name )
 		inspected_node.refreshFromSettings()
@@ -4662,6 +4660,8 @@ func ensure_missing_resource_nodes_loaded() -> int:
 		FlowNodeIO._normalize_loaded_node_template(node, self)
 		FlowNodeIO._ensure_unique_set_variable_name(node, self, {})
 		node.settings.inspect_enabled = false
+		if node.has_method("_sync_editor_state_snapshot"):
+			node.call("_sync_editor_state_snapshot")
 		node.initFromScript()
 		node.refreshFromSettings()
 		refreshSignalsInputArgs(node)

@@ -10,7 +10,7 @@ extends GraphNode
 		if settings and settings.changed.is_connected(_on_settings_changed):
 			settings.changed.disconnect(_on_settings_changed)
 		settings = new_value
-		_sync_debug_enabled_snapshot()
+		_sync_editor_state_snapshot()
 		if settings:
 			settings.changed.connect(_on_settings_changed)
 
@@ -19,7 +19,7 @@ func _exit_tree():
 		settings.changed.disconnect(_on_settings_changed)
 
 func _on_settings_changed():
-	if _handle_debug_enabled_settings_change():
+	if _handle_editor_state_settings_change():
 		return
 	dirty = true
 	refreshFromSettings()
@@ -27,22 +27,31 @@ func _on_settings_changed():
 	if editor:
 		editor.queueRegen()
 
-func _sync_debug_enabled_snapshot() -> void:
+func _sync_editor_state_snapshot() -> void:
 	_last_debug_enabled = bool(settings.debug_enabled) if settings != null else false
+	_last_inspect_enabled = bool(settings.inspect_enabled) if settings != null else false
 
-func _handle_debug_enabled_settings_change() -> bool:
+func _sync_debug_enabled_snapshot() -> void:
+	_sync_editor_state_snapshot()
+
+func _handle_editor_state_settings_change() -> bool:
 	if settings == null:
 		return false
 	var debug_enabled := bool(settings.debug_enabled)
-	if debug_enabled == _last_debug_enabled:
+	var inspect_enabled := bool(settings.inspect_enabled)
+	if debug_enabled == _last_debug_enabled and inspect_enabled == _last_inspect_enabled:
 		return false
 	_last_debug_enabled = debug_enabled
+	_last_inspect_enabled = inspect_enabled
 	var editor = getEditor()
-	if editor != null and editor.has_method("_on_node_debug_setting_changed"):
-		editor.call("_on_node_debug_setting_changed", self)
+	if editor != null and editor.has_method("_on_node_display_state_changed"):
+		editor.call("_on_node_display_state_changed", self)
 	else:
 		refreshFromSettings()
 	return true
+
+func _handle_debug_enabled_settings_change() -> bool:
+	return _handle_editor_state_settings_change()
 
 var rng : RandomNumberGenerator = RandomNumberGenerator.new()
 
@@ -82,6 +91,7 @@ var marker_radius : float = 9
 
 var debug_row : int = -1
 var _last_debug_enabled := false
+var _last_inspect_enabled := false
 
 func _ready():
 	ignore_invalid_connection_type = true
@@ -192,8 +202,8 @@ func refreshInspectMark():
 	redrawUI()
 	
 func onPropChanged( prop_name : String ):
-	if prop_name == "debug_enabled":
-		_handle_debug_enabled_settings_change()
+	if prop_name == "debug_enabled" or prop_name == "inspect_enabled":
+		_handle_editor_state_settings_change()
 		return
 	dirty = true
 

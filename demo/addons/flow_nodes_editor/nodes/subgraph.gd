@@ -68,7 +68,7 @@ func refreshFromSettings():
 	initFromScript()
 
 func _on_settings_changed() -> void:
-	if _handle_debug_enabled_settings_change():
+	if _handle_editor_state_settings_change():
 		return
 	dirty = true
 	refreshFromSettings()
@@ -77,8 +77,8 @@ func _on_settings_changed() -> void:
 		editor.queueRegen()
 
 func onPropChanged( prop_name : String ):
-	if prop_name == "debug_enabled":
-		_handle_debug_enabled_settings_change()
+	if prop_name == "debug_enabled" or prop_name == "inspect_enabled":
+		_handle_editor_state_settings_change()
 		return
 	super.onPropChanged( prop_name )
 	if prop_name == "graph":

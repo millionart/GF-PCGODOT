@@ -40,6 +40,8 @@ func setNode( new_node : FlowNodeBase ):
 		%LabelTitle.text = "..."
 		if node.settings:
 			node.settings.inspect_enabled = false
+			if node.has_method("_sync_editor_state_snapshot"):
+				node.call("_sync_editor_state_snapshot")
 			node.refreshFromSettings()
 		
 	if node != new_node and new_node:
@@ -48,6 +50,8 @@ func setNode( new_node : FlowNodeBase ):
 		else:
 			%LabelTitle.text = new_node.get_title()
 		new_node.settings.inspect_enabled = true
+		if new_node.has_method("_sync_editor_state_snapshot"):
+			new_node.call("_sync_editor_state_snapshot")
 		current_bulk_index = new_node.settings.debug_bulk
 		node = new_node
 		node.setupDrawDebug()
