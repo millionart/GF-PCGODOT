@@ -3,6 +3,8 @@ extends FlowNodeBase
 
 var _connected_graph: FlowGraphResource = null
 var _last_input_data_map: Dictionary = {}
+var _debug_full_eval_queued: bool = false
+var _debug_full_eval_running: bool = false
 
 func _init():
 	meta_node = {
@@ -79,12 +81,24 @@ func refreshFromSettings():
 		_connect_graph(settings.graph)
 	initFromScript()
 
+func _on_settings_changed() -> void:
+	dirty = true
+	refreshFromSettings()
+	if settings != null and settings.debug_enabled:
+		_queue_full_graph_eval_for_debug()
+		return
+	var editor = getEditor()
+	if editor:
+		editor.queueRegen()
+
 func onPropChanged( prop_name : String ):
 	super.onPropChanged( prop_name )
 	if prop_name == "graph":
 		if settings:
 			_connect_graph(settings.graph)
 		initFromScript()
+	elif prop_name == "debug_enabled" and settings != null and settings.debug_enabled:
+		_queue_full_graph_eval_for_debug()
 
 func execute( ctx : FlowData.EvaluationContext ):
 	if not settings.graph:
@@ -116,7 +130,15 @@ func execute( ctx : FlowData.EvaluationContext ):
 	
 	var FlowNodeIOClass = load("res://addons/flow_nodes_editor/flow_nodes_io.gd")
 	var child_depth := int(ctx.runtime_params.get("__eval_depth", 0)) + 1
-	var outputs = FlowNodeIOClass.evaluate_graph(settings.graph, input_data_map, ctx, {}, child_depth)
+	var debug_meta := _push_child_debug_input_meta(ctx, input_data_map)
+	var outputs = FlowNodeIOClass.evaluate_graph(
+		settings.graph,
+		input_data_map,
+		ctx,
+		_child_runtime_params(),
+		child_depth
+	)
+	_pop_child_debug_input_meta(debug_meta)
 	
 	var meta = getMeta()
 	var missing_outputs := PackedStringArray()
@@ -160,3 +182,106 @@ func _debug_input_data_map() -> Dictionary:
 		if data is FlowData.Data:
 			data_map[param.name] = data
 	return data_map
+
+func setupDrawDebug() -> void:
+	if settings != null and settings.debug_enabled:
+		if not _debug_bulk_has_point_stream():
+			if not _debug_full_eval_running:
+				_queue_full_graph_eval_for_debug()
+			return
+	super.setupDrawDebug()
+	_align_debug_draw_to_owner()
+
+func _align_debug_draw_to_owner() -> void:
+	if draw_debug == null or not draw_debug.instance_rid.is_valid():
+		return
+	var editor = getEditor()
+	if editor == null:
+		return
+	var owner_node: Node3D = null
+	if editor.resource_owner is Node3D:
+		owner_node = editor.resource_owner
+	elif editor.has_method("find_debug_world_node"):
+		owner_node = editor.call("find_debug_world_node") as Node3D
+	if owner_node == null or not owner_node.is_inside_tree():
+		return
+	RenderingServer.instance_set_transform(draw_debug.instance_rid, owner_node.global_transform)
+
+func _push_child_debug_input_meta(ctx: FlowData.EvaluationContext, input_data_map: Dictionary) -> Dictionary:
+	var owner = ctx.owner if ctx else null
+	if owner == null:
+		return {"owner": null}
+	var previous := {
+		"owner": owner,
+		"had_graph": owner.has_meta("flow_debug_graph"),
+		"graph": owner.get_meta("flow_debug_graph") if owner.has_meta("flow_debug_graph") else null,
+		"had_input_data_map": owner.has_meta("flow_debug_input_data_map"),
+		"input_data_map": owner.get_meta("flow_debug_input_data_map") if owner.has_meta("flow_debug_input_data_map") else null,
+	}
+	owner.set_meta("flow_debug_graph", settings.graph)
+	owner.set_meta("flow_debug_input_data_map", input_data_map)
+	return previous
+
+func _pop_child_debug_input_meta(previous: Dictionary) -> void:
+	var owner = previous.get("owner", null)
+	if owner == null:
+		return
+	if bool(previous.get("had_graph", false)):
+		owner.set_meta("flow_debug_graph", previous.get("graph"))
+	else:
+		owner.remove_meta("flow_debug_graph")
+	if bool(previous.get("had_input_data_map", false)):
+		owner.set_meta("flow_debug_input_data_map", previous.get("input_data_map"))
+	else:
+		owner.remove_meta("flow_debug_input_data_map")
+
+func _child_runtime_params() -> Dictionary:
+	if settings == null:
+		return {}
+	if settings.debug_enabled or settings.inspect_enabled or _is_currently_analyzed():
+		return {"debug_enabled": true}
+	return {}
+
+func _debug_bulk_has_point_stream() -> bool:
+	if generated_bulks.is_empty() or settings == null:
+		return false
+	var bulk_index := clampi(settings.debug_bulk, 0, generated_bulks.size() - 1)
+	if generated_bulks[bulk_index].is_empty():
+		return false
+	var port_index := clampi(settings.debug_output, 0, generated_bulks[bulk_index].size() - 1)
+	var out_data: FlowData.Data = get_bulk_output(bulk_index, port_index)
+	return out_data != null and out_data.hasStream(FlowData.AttrPosition)
+
+func _queue_full_graph_eval_for_debug() -> void:
+	if _debug_full_eval_queued:
+		return
+	_debug_full_eval_queued = true
+	call_deferred("_run_full_graph_eval_for_debug")
+
+func _run_full_graph_eval_for_debug() -> void:
+	_debug_full_eval_queued = false
+	if settings == null or not settings.debug_enabled:
+		return
+	if _debug_bulk_has_point_stream():
+		setupDrawDebug()
+		return
+	var editor = getEditor()
+	if editor == null or _debug_full_eval_running:
+		return
+	_debug_full_eval_running = true
+	dirty = true
+	if editor.has_method(&"_cancel_regen_run"):
+		editor.call(&"_cancel_regen_run")
+	if editor.has_method(&"markAllNodesAsDirty"):
+		editor.call(&"markAllNodesAsDirty")
+	if editor.has_method(&"evalGraph"):
+		editor.call(&"evalGraph")
+	_debug_full_eval_running = false
+
+func _is_currently_analyzed() -> bool:
+	var editor = getEditor()
+	if editor == null:
+		return false
+	if not ("current_analyzed_node" in editor):
+		return false
+	return editor.current_analyzed_node == self

@@ -238,6 +238,13 @@ func _close_tab_at_index(index: int) -> void:
 		active_tab_index -= 1
 
 
+func _remember_current_graph_view() -> void:
+	if current_resource == null or gedit == null:
+		return
+	current_resource.view_zoom = gedit.zoom
+	current_resource.view_offset = gedit.scroll_offset
+
+
 func ensureCurrentResource() -> FlowGraphResource:
 	if current_resource:
 		return current_resource
@@ -559,18 +566,13 @@ func setResourceToEdit( new_resource : FlowGraphResource, new_resource_owner : F
 func _switch_to_tab(index: int, new_owner = null):
 	if index < 0 or index >= open_tabs.size():
 		return
+	_remember_current_graph_view()
 		
 	# Disconnect from old resource in_params_changed
 	if current_resource and current_resource.in_params_changed.is_connected(_on_in_params_changed):
 		current_resource.in_params_changed.disconnect(_on_in_params_changed)
 		
 	active_tab_index = index
-	
-	# Reload the resource from disk to pick up any external changes (agents, git, etc.)
-	var tab_resource = open_tabs[index].resource
-	var refreshed = _reload_resource_from_disk(tab_resource)
-	if refreshed != tab_resource:
-		open_tabs[index].resource = refreshed
 	current_resource = open_tabs[index].resource
 	
 	# Connect to new resource in_params_changed
@@ -868,17 +870,14 @@ func _set_resource_to_edit_with_loading(new_resource: FlowGraphResource, new_res
 func _switch_to_tab_with_loading(index: int, new_owner = null) -> void:
 	if index < 0 or index >= open_tabs.size():
 		return
+	_remember_current_graph_view()
 
 	if current_resource and current_resource.in_params_changed.is_connected(_on_in_params_changed):
 		current_resource.in_params_changed.disconnect(_on_in_params_changed)
 
 	active_tab_index = index
 
-	_set_graph_loading_progress("Refreshing Resource...", 28.0)
-	var tab_resource = open_tabs[index].resource
-	var refreshed = _reload_resource_from_disk(tab_resource)
-	if refreshed != tab_resource:
-		open_tabs[index].resource = refreshed
+	_set_graph_loading_progress("Loading Resource...", 28.0)
 	current_resource = open_tabs[index].resource
 
 	if current_resource and not current_resource.in_params_changed.is_connected(_on_in_params_changed):
@@ -2370,11 +2369,21 @@ func analyzeNode(node: FlowNodeBase):
 	current_analyzed_node = node
 	auto_regen = prev_auto_regen
 	regen_pending = false
-	evalGraph()
+	_eval_graph_for_analyze(node)
 	data_inspector.refresh()
 	_refresh_inspector_if_showing_nodes([previous_node, node])
 	if make_inspector_visible and make_inspector_visible.is_valid():
 		make_inspector_visible.call()
+
+func _eval_graph_for_analyze(node: FlowNodeBase) -> void:
+	var had_analyze_node := ctx.runtime_params.has("flow_analyze_node")
+	var old_analyze_node = ctx.runtime_params.get("flow_analyze_node")
+	ctx.runtime_params["flow_analyze_node"] = node.name if node else ""
+	evalGraph()
+	if had_analyze_node:
+		ctx.runtime_params["flow_analyze_node"] = old_analyze_node
+	else:
+		ctx.runtime_params.erase("flow_analyze_node")
 
 func _setup_inline_analyze_panel():
 	var panel := Control.new()
@@ -3258,7 +3267,7 @@ func toggleInspection():
 	current_analyzed_node = node
 	auto_regen = prev_auto_regen
 	regen_pending = false
-	evalGraph()
+	_eval_graph_for_analyze(node)
 	data_inspector.refresh()
 
 func analyzeSelection():
@@ -3294,7 +3303,7 @@ func analyzeSelection():
 	current_analyzed_node = node
 	auto_regen = prev_auto_regen
 	regen_pending = false
-	evalGraph()
+	_eval_graph_for_analyze(node)
 	data_inspector.refresh()
 	_refresh_inspector_if_showing_nodes([previous_node, node])
 	if make_inspector_visible and make_inspector_visible.is_valid():
