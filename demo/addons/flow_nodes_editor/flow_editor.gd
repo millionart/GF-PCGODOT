@@ -13,6 +13,7 @@ var regen_requested_while_running := false
 var regen_run_id := 0
 var save_pending := false
 var save_pending_delay := 0.0
+var save_pending_tabs := {}
 var save_feedback_until_msec := 0
 var last_saved_resource_path := ""
 var auto_regen := true
@@ -38,9 +39,11 @@ var internal_inspector_floating_mode := false
 var make_inspector_visible : Callable
 var search_add_node_popup: SearchAddNodePopup
 var custom_graph_grid
+var graph_edit_parent: Container
 
 # This is the default graph-node instantiated, the script contains the logic
 var packed_node = preload("res://addons/flow_nodes_editor/node.tscn")
+const FLOW_GRAPH_EDIT_SCRIPT := preload("res://addons/flow_nodes_editor/flow_graph_edit.gd")
 const directory_path := FlowNodeRegistry.DEFAULT_NODE_DIRECTORY
 const FAST_GRAPH_LOAD_NODE_THRESHOLD := 24
 const EDITOR_SETTING_AUTO_REGEN := "addons/flow_nodes_editor/auto_generate"
@@ -154,6 +157,34 @@ func _set_current_graph_dirty(dirty: bool) -> void:
 		_set_tab_dirty(active_tab_index, dirty)
 
 
+func _sync_save_pending_for_active_tab() -> void:
+	save_pending = _active_tab_is_valid() and save_pending_tabs.has(active_tab_index)
+	if save_pending and save_pending_delay <= 0.0:
+		save_pending_delay = SAVE_DEBOUNCE_SECONDS
+
+
+func _forget_tab_pending_save(index: int) -> void:
+	if index < 0:
+		return
+	var shifted_pending_tabs := {}
+	for pending_index in save_pending_tabs.keys():
+		var tab_index := int(pending_index)
+		if tab_index == index:
+			continue
+		if tab_index > index:
+			shifted_pending_tabs[tab_index - 1] = true
+		else:
+			shifted_pending_tabs[tab_index] = true
+	save_pending_tabs = shifted_pending_tabs
+	_sync_save_pending_for_active_tab()
+
+
+func _tab_has_cached_graph_ui(index: int) -> bool:
+	if index < 0 or index >= open_tabs.size():
+		return false
+	return bool(open_tabs[index].get("graph_ui_cached", false))
+
+
 func _mark_saved_resource_clean(saved_resource: FlowGraphResource, saved_path: String = "") -> void:
 	var changed := false
 	for i in range(open_tabs.size()):
@@ -179,6 +210,241 @@ func _is_save_feedback_active() -> bool:
 	save_feedback_until_msec = 0
 	last_saved_resource_path = ""
 	return false
+
+
+func _persist_active_tab_before_switch() -> void:
+	if current_resource == null:
+		return
+	_remember_current_graph_view()
+
+
+func _copy_input_sources() -> Dictionary:
+	var copied := {}
+	for key in input_sources.keys():
+		var copied_key = key.duplicate() if key is Array else key
+		var value = input_sources[key]
+		copied[copied_key] = value.duplicate() if value is Array else value
+	return copied
+
+
+func _get_graph_edit_parent() -> Container:
+	if graph_edit_parent != null and is_instance_valid(graph_edit_parent):
+		return graph_edit_parent
+	if gedit != null and is_instance_valid(gedit) and gedit.get_parent() is Container:
+		graph_edit_parent = gedit.get_parent() as Container
+	else:
+		graph_edit_parent = get_node_or_null("VBoxContainer/VSplitContainer") as Container
+	return graph_edit_parent
+
+
+func _configure_graph_edit_view(graph_edit: GraphEdit) -> void:
+	graph_edit.name = "GraphEdit"
+	graph_edit.unique_name_in_owner = true
+	graph_edit.visible = true
+	graph_edit.layout_mode = 2
+	graph_edit.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	graph_edit.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	graph_edit.size_flags_stretch_ratio = 3.0
+	graph_edit.right_disconnects = false
+	graph_edit.connection_lines_thickness = 2.0
+	graph_edit.show_zoom_buttons = false
+	graph_edit.show_grid_buttons = false
+	graph_edit.add_theme_color_override("activity", Color(1, 0.2, 0.2, 1))
+
+
+func _get_minimap_button_pressed() -> bool:
+	if toolbar_hbox == null:
+		return false
+	var minimap_button := toolbar_hbox.get_node_or_null("ButtonMinimap") as Button
+	return minimap_button != null and minimap_button.button_pressed
+
+
+func _create_graph_edit_view() -> GraphEdit:
+	var graph_edit := FLOW_GRAPH_EDIT_SCRIPT.new() as GraphEdit
+	_configure_graph_edit_view(graph_edit)
+	graph_edit.minimap_enabled = _get_minimap_button_pressed()
+	return graph_edit
+
+
+func _connect_graph_edit_signals(graph_edit: GraphEdit) -> void:
+	if graph_edit == null:
+		return
+	if not graph_edit.connection_from_empty.is_connected(_on_graph_edit_connection_from_empty):
+		graph_edit.connection_from_empty.connect(_on_graph_edit_connection_from_empty)
+	if not graph_edit.connection_request.is_connected(_on_graph_edit_connection_request):
+		graph_edit.connection_request.connect(_on_graph_edit_connection_request)
+	if not graph_edit.connection_to_empty.is_connected(_on_graph_edit_connection_to_empty):
+		graph_edit.connection_to_empty.connect(_on_graph_edit_connection_to_empty)
+	if not graph_edit.copy_nodes_request.is_connected(_on_graph_edit_copy_nodes_request):
+		graph_edit.copy_nodes_request.connect(_on_graph_edit_copy_nodes_request)
+	if not graph_edit.cut_nodes_request.is_connected(_on_graph_edit_cut_nodes_request):
+		graph_edit.cut_nodes_request.connect(_on_graph_edit_cut_nodes_request)
+	if not graph_edit.delete_nodes_request.is_connected(_on_graph_edit_delete_nodes_request):
+		graph_edit.delete_nodes_request.connect(_on_graph_edit_delete_nodes_request)
+	if not graph_edit.disconnection_request.is_connected(_on_graph_edit_disconnection_request):
+		graph_edit.disconnection_request.connect(_on_graph_edit_disconnection_request)
+	if not graph_edit.duplicate_nodes_request.is_connected(_on_graph_edit_duplicate_nodes_request):
+		graph_edit.duplicate_nodes_request.connect(_on_graph_edit_duplicate_nodes_request)
+	if not graph_edit.gui_input.is_connected(_on_graph_edit_gui_input):
+		graph_edit.gui_input.connect(_on_graph_edit_gui_input)
+	if not graph_edit.node_selected.is_connected(_on_graph_edit_node_selected):
+		graph_edit.node_selected.connect(_on_graph_edit_node_selected)
+	if not graph_edit.node_deselected.is_connected(_on_graph_edit_node_deselected):
+		graph_edit.node_deselected.connect(_on_graph_edit_node_deselected)
+	if not graph_edit.paste_nodes_request.is_connected(_on_graph_edit_paste_nodes_request):
+		graph_edit.paste_nodes_request.connect(_on_graph_edit_paste_nodes_request)
+	if not graph_edit.popup_request.is_connected(_on_graph_edit_popup_request):
+		graph_edit.popup_request.connect(_on_graph_edit_popup_request)
+	if not graph_edit.begin_node_move.is_connected(_on_graph_edit_begin_node_move):
+		graph_edit.begin_node_move.connect(_on_graph_edit_begin_node_move)
+	if not graph_edit.end_node_move.is_connected(_on_graph_edit_end_node_move):
+		graph_edit.end_node_move.connect(_on_graph_edit_end_node_move)
+
+
+func _set_graph_edit_menu_panel_visible(graph_edit: GraphEdit, visible: bool) -> void:
+	if graph_edit == null or not is_instance_valid(graph_edit):
+		return
+	var menu_hbox := graph_edit.get_menu_hbox()
+	if menu_hbox == null:
+		return
+	var menu_panel := menu_hbox.get_parent() as Control
+	if menu_panel != null:
+		menu_panel.visible = visible
+
+
+func _detach_toolbar_from_graph_edit(graph_edit: GraphEdit) -> void:
+	if toolbar_hbox == null or graph_edit == null:
+		return
+	if not graph_edit.is_ancestor_of(toolbar_hbox):
+		return
+	var toolbar_host := get_node_or_null("VBoxContainer/ScrollContainer") as ScrollContainer
+	if toolbar_host == null:
+		return
+	if toolbar_hbox.get_parent() != null:
+		toolbar_hbox.get_parent().remove_child(toolbar_hbox)
+	toolbar_host.add_child(toolbar_hbox)
+	_set_graph_edit_menu_panel_visible(graph_edit, false)
+
+
+func _free_graph_edit_view(graph_edit: GraphEdit) -> void:
+	if graph_edit == null or not is_instance_valid(graph_edit):
+		return
+	_detach_toolbar_from_graph_edit(graph_edit)
+	if graph_edit.get_parent() != null:
+		graph_edit.get_parent().remove_child(graph_edit)
+	graph_edit.queue_free()
+
+
+func _activate_graph_edit_view(graph_edit: GraphEdit) -> void:
+	if graph_edit == null or not is_instance_valid(graph_edit):
+		return
+	var parent := _get_graph_edit_parent()
+	if parent == null:
+		return
+	_configure_graph_edit_view(graph_edit)
+	if graph_edit.get_parent() != parent:
+		if graph_edit.get_parent() != null:
+			graph_edit.get_parent().remove_child(graph_edit)
+		parent.add_child(graph_edit)
+	gedit = graph_edit
+	parent.move_child(gedit, 0)
+	_connect_graph_edit_signals(gedit)
+	if _chrome_refs != null:
+		FlowEditorChrome.retarget_graph_edit(_chrome_refs, gedit)
+	_ensure_custom_graph_grid()
+	_apply_graph_grid_mode()
+	_ensure_active_analyze_panel()
+	_sync_minimap_button()
+
+
+func _ensure_active_graph_edit_for_uncached_tab() -> void:
+	var parent := _get_graph_edit_parent()
+	if (
+		gedit != null
+		and is_instance_valid(gedit)
+		and gedit.get_parent() == parent
+		and gedit.visible
+	):
+		_activate_graph_edit_view(gedit)
+		return
+	_activate_graph_edit_view(_create_graph_edit_view())
+
+
+func _ensure_active_analyze_panel() -> void:
+	if gedit == null or not is_instance_valid(gedit):
+		return
+	var panel := gedit.get_node_or_null("InlineAnalyzePanel") as Control
+	if panel != null and is_instance_valid(panel):
+		analyze_panel = panel
+		var panel_background := panel.get_node_or_null("AnalyzePanelBackground")
+		data_inspector = null
+		if panel_background != null:
+			data_inspector = panel_background.get_node_or_null("InlineDataInspector") as Control
+		if data_inspector != null and data_inspector.has_method("set_flow_editor"):
+			data_inspector.set_flow_editor(self)
+		return
+	analyze_panel = null
+	data_inspector = null
+	_setup_inline_analyze_panel()
+
+
+func _cache_active_tab_graph_ui() -> void:
+	if not _active_tab_is_valid() or current_resource == null or gedit == null:
+		return
+	_persist_active_tab_before_switch()
+	open_tabs[active_tab_index]["cached_graph_edit"] = gedit
+	open_tabs[active_tab_index]["cached_gedit_nodes_by_name"] = gedit_nodes_by_name.duplicate()
+	open_tabs[active_tab_index]["cached_input_sources"] = _copy_input_sources()
+	open_tabs[active_tab_index]["graph_ui_cached"] = true
+	_set_graph_edit_menu_panel_visible(gedit, false)
+	gedit.name = "__cached_graph_edit_%d" % active_tab_index
+	gedit.visible = false
+	gedit_nodes_by_name.clear()
+	input_sources.clear()
+	_clear_active_nodes()
+	inspected_node = null
+	native_inspector_target = null
+	if inspector:
+		inspector.edit(null)
+	if data_inspector != null and is_instance_valid(data_inspector):
+		data_inspector.setNode(null)
+	_set_analyze_panel_visible(false)
+	analyze_panel = null
+	data_inspector = null
+
+
+func _restore_cached_tab_graph_ui(index: int) -> bool:
+	if not _tab_has_cached_graph_ui(index):
+		return false
+	var cached_graph_edit := open_tabs[index].get("cached_graph_edit", null) as GraphEdit
+	if cached_graph_edit == null or not is_instance_valid(cached_graph_edit):
+		_clear_tab_cached_graph_ui_state(index)
+		return false
+	_activate_graph_edit_view(cached_graph_edit)
+	gedit_nodes_by_name = open_tabs[index].get("cached_gedit_nodes_by_name", {}).duplicate()
+	input_sources = open_tabs[index].get("cached_input_sources", {}).duplicate(true)
+	_mark_status_counts_dirty()
+	update_status_bar()
+	return true
+
+
+func _free_tab_cached_graph_ui(index: int) -> void:
+	if index < 0 or index >= open_tabs.size():
+		return
+	var has_cached_ui := _tab_has_cached_graph_ui(index)
+	var cached_graph_edit := open_tabs[index].get("cached_graph_edit", null) as GraphEdit
+	if has_cached_ui:
+		_free_graph_edit_view(cached_graph_edit)
+	_clear_tab_cached_graph_ui_state(index)
+
+
+func _clear_tab_cached_graph_ui_state(index: int) -> void:
+	if index < 0 or index >= open_tabs.size():
+		return
+	open_tabs[index].erase("cached_graph_edit")
+	open_tabs[index].erase("cached_gedit_nodes_by_name")
+	open_tabs[index].erase("cached_input_sources")
+	open_tabs[index]["graph_ui_cached"] = false
 
 
 func _editor_translate(message: String) -> String:
@@ -218,17 +484,26 @@ func _close_tab_at_index(index: int) -> void:
 		return
 	var closed_active := index == active_tab_index
 	if closed_active and current_resource:
-		saveResource()
+		_persist_active_tab_before_switch()
+		_clear_tab_cached_graph_ui_state(index)
+		_clear_ui_nodes()
+		_free_graph_edit_view(gedit)
+		gedit = null
+		current_resource = null
+		resource_owner = null
+		active_tab_index = -1
+	else:
+		_free_tab_cached_graph_ui(index)
 	var tab_res = open_tabs[index].resource
 	if tab_res and tab_res.in_params_changed.is_connected(_on_in_params_changed):
 		tab_res.in_params_changed.disconnect(_on_in_params_changed)
+	_forget_tab_pending_save(index)
 	open_tabs.remove_at(index)
 	_sync_tab_bar_from_open_tabs()
 	if open_tabs.is_empty():
 		current_resource = null
 		resource_owner = null
 		active_tab_index = -1
-		_clear_ui_nodes()
 		ensureCurrentResource()
 		return
 	if closed_active:
@@ -236,6 +511,7 @@ func _close_tab_at_index(index: int) -> void:
 		_switch_to_tab(new_idx)
 	elif active_tab_index > index:
 		active_tab_index -= 1
+		_sync_save_pending_for_active_tab()
 
 
 func _remember_current_graph_view() -> void:
@@ -544,10 +820,6 @@ func setResourceToEdit( new_resource : FlowGraphResource, new_resource_owner : F
 		_switch_to_tab(found_idx, new_resource_owner)
 		_close_pristine_untitled_tabs(new_resource)
 	else:
-		# Save current tab before opening a new one
-		if current_resource:
-			saveResource()
-			
 		var tab_title = "New Graph"
 		if new_resource.resource_path != "":
 			tab_title = new_resource.resource_path.get_file()
@@ -566,7 +838,9 @@ func setResourceToEdit( new_resource : FlowGraphResource, new_resource_owner : F
 func _switch_to_tab(index: int, new_owner = null):
 	if index < 0 or index >= open_tabs.size():
 		return
-	_remember_current_graph_view()
+	if index == active_tab_index:
+		return
+	_cache_active_tab_graph_ui()
 		
 	# Disconnect from old resource in_params_changed
 	if current_resource and current_resource.in_params_changed.is_connected(_on_in_params_changed):
@@ -574,6 +848,7 @@ func _switch_to_tab(index: int, new_owner = null):
 		
 	active_tab_index = index
 	current_resource = open_tabs[index].resource
+	_sync_save_pending_for_active_tab()
 	
 	# Connect to new resource in_params_changed
 	if current_resource and not current_resource.in_params_changed.is_connected(_on_in_params_changed):
@@ -582,19 +857,23 @@ func _switch_to_tab(index: int, new_owner = null):
 	if new_owner != null:
 		open_tabs[index].owner = new_owner
 	resource_owner = open_tabs[index].owner
-	
-	_clear_ui_nodes()
-	
-	_prepare_node_types_for_graph_load()
-	FlowNodeIO.loadFromResource( self )
-	repair_graph_integrity()
+
+	var restored_cached_ui := _restore_cached_tab_graph_ui(index)
+	if not restored_cached_ui:
+		_ensure_active_graph_edit_for_uncached_tab()
+		_clear_ui_nodes()
+		_prepare_node_types_for_graph_load()
+		FlowNodeIO.loadFromResource( self )
+		repair_graph_integrity()
 	
 	ctx.graph = current_resource
 	ctx.owner = resource_owner
 	ctx.gedit_nodes_by_name = gedit_nodes_by_name
-	markAllNodesAsDirty()
-	queueRegen()
+	if not restored_cached_ui:
+		markAllNodesAsDirty()
+		queueRegen()
 	populatePopupInputsMenu()
+	populatePopupOutputsMenu()
 	
 	tab_bar.current_tab = index
 	_update_tab_titles()
@@ -617,8 +896,6 @@ func _prepare_node_types_for_graph_load() -> void:
 
 func _on_tab_changed(index: int):
 	if index >= 0 and index < open_tabs.size() and index != active_tab_index:
-		if current_resource:
-			saveResource()
 		_switch_to_tab(index)
 
 func _on_tab_close_pressed(index: int):
@@ -848,10 +1125,6 @@ func _set_resource_to_edit_with_loading(new_resource: FlowGraphResource, new_res
 		_close_pristine_untitled_tabs(new_resource)
 		return
 
-	if current_resource:
-		_set_graph_loading_progress("Saving Current Graph...", 24.0)
-		saveResource()
-
 	var tab_title := "New Graph"
 	if new_resource.resource_path != "":
 		tab_title = new_resource.resource_path.get_file()
@@ -870,12 +1143,15 @@ func _set_resource_to_edit_with_loading(new_resource: FlowGraphResource, new_res
 func _switch_to_tab_with_loading(index: int, new_owner = null) -> void:
 	if index < 0 or index >= open_tabs.size():
 		return
-	_remember_current_graph_view()
+	if index == active_tab_index:
+		return
+	_cache_active_tab_graph_ui()
 
 	if current_resource and current_resource.in_params_changed.is_connected(_on_in_params_changed):
 		current_resource.in_params_changed.disconnect(_on_in_params_changed)
 
 	active_tab_index = index
+	_sync_save_pending_for_active_tab()
 
 	_set_graph_loading_progress("Loading Resource...", 28.0)
 	current_resource = open_tabs[index].resource
@@ -887,25 +1163,30 @@ func _switch_to_tab_with_loading(index: int, new_owner = null) -> void:
 		open_tabs[index].owner = new_owner
 	resource_owner = open_tabs[index].owner
 
-	_set_graph_loading_progress("Clearing Graph...", 34.0)
-	_clear_ui_nodes()
+	var restored_cached_ui := _restore_cached_tab_graph_ui(index)
+	if not restored_cached_ui:
+		_ensure_active_graph_edit_for_uncached_tab()
+		_set_graph_loading_progress("Clearing Graph...", 34.0)
+		_clear_ui_nodes()
 
-	_set_graph_loading_progress("Preparing Nodes...", 42.0)
-	_prepare_node_types_for_graph_load()
+		_set_graph_loading_progress("Preparing Nodes...", 42.0)
+		_prepare_node_types_for_graph_load()
 
-	var use_fast_graph_load := _should_use_fast_graph_load(current_resource)
-	if use_fast_graph_load:
-		FlowNodeIO.loadFromResource(self)
-	else:
-		await FlowNodeIO.loadFromResourceWithProgress(self, Callable(self, "_set_graph_loading_progress"))
+		var use_fast_graph_load := _should_use_fast_graph_load(current_resource)
+		if use_fast_graph_load:
+			FlowNodeIO.loadFromResource(self)
+		else:
+			await FlowNodeIO.loadFromResourceWithProgress(self, Callable(self, "_set_graph_loading_progress"))
 
 	_set_graph_loading_progress("Finalizing Graph...", 96.0)
-	repair_graph_integrity()
+	if not restored_cached_ui:
+		repair_graph_integrity()
 	ctx.graph = current_resource
 	ctx.owner = resource_owner
 	ctx.gedit_nodes_by_name = gedit_nodes_by_name
-	markAllNodesAsDirty()
-	queueRegen()
+	if not restored_cached_ui:
+		markAllNodesAsDirty()
+		queueRegen()
 	populatePopupInputsMenu()
 	populatePopupOutputsMenu()
 
@@ -1079,6 +1360,10 @@ func _sync_open_tabs_from_disk() -> bool:
 		var refreshed := _reload_resource_from_disk(tab_res)
 		if refreshed == tab_res:
 			continue
+		if i == active_tab_index:
+			_clear_tab_cached_graph_ui_state(i)
+		else:
+			_free_tab_cached_graph_ui(i)
 		open_tabs[i].resource = refreshed
 		if i == active_tab_index:
 			current_resource = refreshed
@@ -1157,7 +1442,9 @@ func _on_filesystem_changed():
 
 func saveResource():
 	FlowNodeIO.saveToResource( self )
-	save_pending = false
+	if _active_tab_is_valid():
+		save_pending_tabs.erase(active_tab_index)
+	_sync_save_pending_for_active_tab()
 	save_pending_delay = 0.0
 
 func _save_current_resource_to_path(path: String) -> bool:
@@ -1624,6 +1911,8 @@ func _ready():
 	_chrome_refs.host = self
 	_chrome_refs.tab_bar = tab_bar
 	_chrome_refs.toolbar_hbox = toolbar_hbox
+	graph_edit_parent = gedit.get_parent() as Container
+	_configure_graph_edit_view(gedit)
 	_chrome_refs.graph_edit = gedit
 	_chrome_refs.open_graph_button = open_graph_button
 	_chrome_refs.expand_graph_button = expand_graph_button
@@ -1640,10 +1929,7 @@ func _ready():
 	var color_nodes_checkbox := toolbar_hbox.get_node_or_null("CheckColorNodes") as CheckBox
 	if color_nodes_checkbox:
 		color_nodes_checkbox.button_pressed = color_nodes
-	if not gedit.begin_node_move.is_connected(_on_graph_edit_begin_node_move):
-		gedit.begin_node_move.connect(_on_graph_edit_begin_node_move)
-	if not gedit.end_node_move.is_connected(_on_graph_edit_end_node_move):
-		gedit.end_node_move.connect(_on_graph_edit_end_node_move)
+	_connect_graph_edit_signals(gedit)
 	_connect_native_inspector()
 	call_deferred("_finish_editor_ready")
 
@@ -1750,7 +2036,11 @@ func _sync_tab_bar_from_open_tabs() -> void:
 	_update_tab_titles()
 
 func _ensure_custom_graph_grid() -> void:
-	if custom_graph_grid != null and is_instance_valid(custom_graph_grid):
+	if (
+		custom_graph_grid != null
+		and is_instance_valid(custom_graph_grid)
+		and custom_graph_grid.get_parent() == gedit
+	):
 		custom_graph_grid.gedit = gedit
 		return
 	custom_graph_grid = gedit.get_node_or_null("CustomGraphGrid")
@@ -2718,6 +3008,8 @@ func queueSave():
 	save_feedback_until_msec = 0
 	last_saved_resource_path = ""
 	_set_current_graph_dirty(true)
+	if _active_tab_is_valid():
+		save_pending_tabs[active_tab_index] = true
 	save_pending = true
 	save_pending_delay = SAVE_DEBOUNCE_SECONDS
 	
