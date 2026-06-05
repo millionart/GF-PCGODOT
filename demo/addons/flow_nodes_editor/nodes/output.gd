@@ -64,17 +64,13 @@ func _ready():
 	if is_multi_port():
 		var editor = getEditor()
 		if editor and editor.current_resource:
-			if not editor.current_resource.in_params_changed.is_connected(_on_in_params_changed):
-				editor.current_resource.in_params_changed.connect(_on_in_params_changed)
+			connectGraphParameterSignal(editor.current_resource, _on_in_params_changed)
 			initFromScript()
 
 func _exit_tree():
 	super._exit_tree()
 	if is_multi_port():
-		var editor = getEditor()
-		if editor and editor.current_resource:
-			if editor.current_resource.in_params_changed.is_connected(_on_in_params_changed):
-				editor.current_resource.in_params_changed.disconnect(_on_in_params_changed)
+		disconnectGraphParameterSignal(_on_in_params_changed)
 
 func _on_in_params_changed():
 	refreshFromParameterSignal()

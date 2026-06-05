@@ -38,6 +38,7 @@ var num_in_ports : int = 0
 var num_out_ports : int = 0
 var num_ports : int = 0			 # Max of (in,out)
 var meta_node: Dictionary = {}
+var connected_parameter_graph: FlowGraphResource = null
 
 var node_template : String
 var show_disconnected_inputs : bool = false
@@ -643,6 +644,19 @@ func refreshFromParameterSignal():
 		editor.refreshGraphParameterNodeFromSignal(self)
 		return
 	initFromScript()
+
+func connectGraphParameterSignal(graph: FlowGraphResource, callback: Callable) -> void:
+	disconnectGraphParameterSignal(callback)
+	if is_instance_valid(graph):
+		connected_parameter_graph = graph
+		if not connected_parameter_graph.in_params_changed.is_connected(callback):
+			connected_parameter_graph.in_params_changed.connect(callback)
+
+func disconnectGraphParameterSignal(callback: Callable) -> void:
+	if is_instance_valid(connected_parameter_graph):
+		if connected_parameter_graph.in_params_changed.is_connected(callback):
+			connected_parameter_graph.in_params_changed.disconnect(callback)
+	connected_parameter_graph = null
 
 func initFromScript():
 	var meta := getMeta()

@@ -178,6 +178,16 @@ func refreshGraphParameterNodeFromSignal(node: Node) -> void:
 	_end_suppress_save_queue()
 
 
+func _connect_resource_parameter_signal(resource: FlowGraphResource) -> void:
+	if resource and not resource.in_params_changed.is_connected(_on_in_params_changed):
+		resource.in_params_changed.connect(_on_in_params_changed)
+
+
+func _disconnect_resource_parameter_signal(resource: FlowGraphResource) -> void:
+	if resource and resource.in_params_changed.is_connected(_on_in_params_changed):
+		resource.in_params_changed.disconnect(_on_in_params_changed)
+
+
 func _clear_tab_pending_save(index: int) -> bool:
 	if not save_pending_tabs.has(index):
 		return false
@@ -527,8 +537,7 @@ func _close_tab_at_index(index: int) -> void:
 	else:
 		_free_tab_cached_graph_ui(index)
 	var tab_res = open_tabs[index].resource
-	if tab_res and tab_res.in_params_changed.is_connected(_on_in_params_changed):
-		tab_res.in_params_changed.disconnect(_on_in_params_changed)
+	_disconnect_resource_parameter_signal(tab_res)
 	_forget_tab_pending_save(index)
 	open_tabs.remove_at(index)
 	_sync_tab_bar_from_open_tabs()
@@ -868,28 +877,9 @@ func setResourceToEdit( new_resource : FlowGraphResource, new_resource_owner : F
 		_close_pristine_untitled_tabs(new_resource)
 
 func _switch_to_tab(index: int, new_owner = null):
-	if index < 0 or index >= open_tabs.size():
+	if not _begin_tab_switch(index):
 		return
-	if index == active_tab_index:
-		return
-	_cache_active_tab_graph_ui()
-		
-	# Disconnect from old resource in_params_changed
-	if current_resource and current_resource.in_params_changed.is_connected(_on_in_params_changed):
-		current_resource.in_params_changed.disconnect(_on_in_params_changed)
-		
-	active_tab_index = index
-	current_resource = open_tabs[index].resource
-	_sync_save_pending_for_active_tab()
-	
-	# Connect to new resource in_params_changed
-	if current_resource and not current_resource.in_params_changed.is_connected(_on_in_params_changed):
-		current_resource.in_params_changed.connect(_on_in_params_changed)
-	
-	if new_owner != null:
-		open_tabs[index].owner = new_owner
-	resource_owner = open_tabs[index].owner
-
+	_activate_tab_resource(index, new_owner)
 	var restored_cached_ui := _restore_cached_tab_graph_ui(index)
 	if not restored_cached_ui:
 		_ensure_active_graph_edit_for_uncached_tab()
@@ -899,7 +889,30 @@ func _switch_to_tab(index: int, new_owner = null):
 		FlowNodeIO.loadFromResource( self )
 		repair_graph_integrity()
 		_end_suppress_save_queue()
-	
+	_finish_tab_switch(index, restored_cached_ui)
+
+
+func _begin_tab_switch(index: int) -> bool:
+	if index < 0 or index >= open_tabs.size():
+		return false
+	if index == active_tab_index:
+		return false
+	_cache_active_tab_graph_ui()
+	_disconnect_resource_parameter_signal(current_resource)
+	active_tab_index = index
+	_sync_save_pending_for_active_tab()
+	return true
+
+
+func _activate_tab_resource(index: int, new_owner = null) -> void:
+	current_resource = open_tabs[index].resource
+	_connect_resource_parameter_signal(current_resource)
+	if new_owner != null:
+		open_tabs[index].owner = new_owner
+	resource_owner = open_tabs[index].owner
+
+
+func _finish_tab_switch(index: int, restored_cached_ui: bool) -> void:
 	ctx.graph = current_resource
 	ctx.owner = resource_owner
 	ctx.gedit_nodes_by_name = gedit_nodes_by_name
@@ -908,10 +921,8 @@ func _switch_to_tab(index: int, new_owner = null):
 		queueRegen()
 	populatePopupInputsMenu()
 	populatePopupOutputsMenu()
-	
 	tab_bar.current_tab = index
 	_update_tab_titles()
-		
 	update_status_bar()
 
 
@@ -952,8 +963,7 @@ func _refresh_active_tab_resource_from_disk() -> void:
 		return
 	open_tabs[active_tab_index].resource = refreshed
 	current_resource = refreshed
-	if not current_resource.in_params_changed.is_connected(_on_in_params_changed):
-		current_resource.in_params_changed.connect(_on_in_params_changed)
+	_connect_resource_parameter_signal(current_resource)
 
 func _update_tab_titles():
 	if tab_bar == null:
@@ -1175,28 +1185,10 @@ func _set_resource_to_edit_with_loading(new_resource: FlowGraphResource, new_res
 	_close_pristine_untitled_tabs(new_resource)
 
 func _switch_to_tab_with_loading(index: int, new_owner = null) -> void:
-	if index < 0 or index >= open_tabs.size():
+	if not _begin_tab_switch(index):
 		return
-	if index == active_tab_index:
-		return
-	_cache_active_tab_graph_ui()
-
-	if current_resource and current_resource.in_params_changed.is_connected(_on_in_params_changed):
-		current_resource.in_params_changed.disconnect(_on_in_params_changed)
-
-	active_tab_index = index
-	_sync_save_pending_for_active_tab()
-
 	_set_graph_loading_progress("Loading Resource...", 28.0)
-	current_resource = open_tabs[index].resource
-
-	if current_resource and not current_resource.in_params_changed.is_connected(_on_in_params_changed):
-		current_resource.in_params_changed.connect(_on_in_params_changed)
-
-	if new_owner != null:
-		open_tabs[index].owner = new_owner
-	resource_owner = open_tabs[index].owner
-
+	_activate_tab_resource(index, new_owner)
 	var restored_cached_ui := _restore_cached_tab_graph_ui(index)
 	if not restored_cached_ui:
 		_begin_suppress_save_queue()
@@ -1217,19 +1209,7 @@ func _switch_to_tab_with_loading(index: int, new_owner = null) -> void:
 	if not restored_cached_ui:
 		repair_graph_integrity()
 		_end_suppress_save_queue()
-	ctx.graph = current_resource
-	ctx.owner = resource_owner
-	ctx.gedit_nodes_by_name = gedit_nodes_by_name
-	if not restored_cached_ui:
-		markAllNodesAsDirty()
-		queueRegen()
-	populatePopupInputsMenu()
-	populatePopupOutputsMenu()
-
-	tab_bar.current_tab = index
-	_update_tab_titles()
-
-	update_status_bar()
+	_finish_tab_switch(index, restored_cached_ui)
 
 func _setup_graph_loading_overlay() -> void:
 	if graph_loading_overlay != null and is_instance_valid(graph_loading_overlay):
@@ -1414,8 +1394,7 @@ func _on_filesystem_changed():
 
 	var resource_stale := _sync_open_tabs_from_disk()
 	if resource_stale and current_resource:
-		if not current_resource.in_params_changed.is_connected(_on_in_params_changed):
-			current_resource.in_params_changed.connect(_on_in_params_changed)
+		_connect_resource_parameter_signal(current_resource)
 
 	# Check for modified scripts
 	var scripts_changed := false

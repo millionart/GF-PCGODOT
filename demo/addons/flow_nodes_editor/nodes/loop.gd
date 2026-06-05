@@ -1,8 +1,6 @@
 @tool
 extends FlowNodeBase
 
-var _connected_graph: FlowGraphResource = null
-
 func _init():
 	meta_node = {
 		"title" : "Loop",
@@ -14,20 +12,7 @@ func _init():
 
 func _exit_tree():
 	super._exit_tree()
-	_disconnect_graph()
-
-func _disconnect_graph():
-	if is_instance_valid(_connected_graph):
-		if _connected_graph.in_params_changed.is_connected(_on_graph_params_changed):
-			_connected_graph.in_params_changed.disconnect(_on_graph_params_changed)
-	_connected_graph = null
-
-func _connect_graph(graph: FlowGraphResource):
-	_disconnect_graph()
-	if is_instance_valid(graph):
-		_connected_graph = graph
-		if not _connected_graph.in_params_changed.is_connected(_on_graph_params_changed):
-			_connected_graph.in_params_changed.connect(_on_graph_params_changed)
+	disconnectGraphParameterSignal(_on_graph_params_changed)
 
 func _on_graph_params_changed():
 	refreshFromParameterSignal()
@@ -80,14 +65,14 @@ func getTitle() -> String:
 func refreshFromSettings():
 	super.refreshFromSettings()
 	if settings:
-		_connect_graph(settings.graph)
+		connectGraphParameterSignal(settings.graph, _on_graph_params_changed)
 	initFromScript()
 
 func onPropChanged( prop_name : String ):
 	super.onPropChanged( prop_name )
 	if prop_name == "graph" or prop_name == "item_input_name" or prop_name == "output_attribute_name" or prop_name == "feedback_param_name":
 		if settings:
-			_connect_graph(settings.graph)
+			connectGraphParameterSignal(settings.graph, _on_graph_params_changed)
 		initFromScript()
 
 func execute( ctx : FlowData.EvaluationContext ):

@@ -1,7 +1,6 @@
 @tool
 extends FlowNodeBase
 
-var _connected_graph: FlowGraphResource = null
 var _last_input_data_map: Dictionary = {}
 var _debug_full_eval_queued: bool = false
 var _debug_full_eval_running: bool = false
@@ -18,20 +17,7 @@ func _init():
 
 func _exit_tree():
 	super._exit_tree()
-	_disconnect_graph()
-
-func _disconnect_graph():
-	if is_instance_valid(_connected_graph):
-		if _connected_graph.in_params_changed.is_connected(_on_graph_params_changed):
-			_connected_graph.in_params_changed.disconnect(_on_graph_params_changed)
-	_connected_graph = null
-
-func _connect_graph(graph: FlowGraphResource):
-	_disconnect_graph()
-	if is_instance_valid(graph):
-		_connected_graph = graph
-		if not _connected_graph.in_params_changed.is_connected(_on_graph_params_changed):
-			_connected_graph.in_params_changed.connect(_on_graph_params_changed)
+	disconnectGraphParameterSignal(_on_graph_params_changed)
 
 func _on_graph_params_changed():
 	refreshFromParameterSignal()
@@ -78,7 +64,7 @@ func getTitle() -> String:
 func refreshFromSettings():
 	super.refreshFromSettings()
 	if settings:
-		_connect_graph(settings.graph)
+		connectGraphParameterSignal(settings.graph, _on_graph_params_changed)
 	initFromScript()
 
 func _on_settings_changed() -> void:
@@ -95,7 +81,7 @@ func onPropChanged( prop_name : String ):
 	super.onPropChanged( prop_name )
 	if prop_name == "graph":
 		if settings:
-			_connect_graph(settings.graph)
+			connectGraphParameterSignal(settings.graph, _on_graph_params_changed)
 		initFromScript()
 	elif prop_name == "debug_enabled" and settings != null and settings.debug_enabled:
 		_queue_full_graph_eval_for_debug()
