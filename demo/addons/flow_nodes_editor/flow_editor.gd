@@ -2544,38 +2544,60 @@ func _refresh_inspector_if_showing_nodes(nodes: Array):
 			_inspect_graph_element(node)
 			return
 
+func _begin_debug_state_batch() -> bool:
+	var prev_auto_regen := auto_regen
+	auto_regen = false
+	return prev_auto_regen
+
+func _set_node_debug_enabled(
+	node: Node,
+	debug_enabled: bool,
+	changed_nodes: Array,
+	names: PackedStringArray = PackedStringArray()
+) -> void:
+	var flow_node := node as FlowNodeBase
+	if flow_node == null or flow_node.settings == null:
+		return
+	flow_node.settings.debug_enabled = debug_enabled
+	flow_node.dirty = true
+	flow_node.refreshFromSettings()
+	changed_nodes.append(flow_node)
+	names.append(flow_node.settings.title)
+
+func _finish_debug_state_batch(prev_auto_regen: bool, changed_nodes: Array) -> void:
+	auto_regen = prev_auto_regen
+	if changed_nodes.is_empty():
+		return
+	_run_forced_graph_eval()
+
 func _hotkey_toggle_debug():
 	var nodes = _get_hotkey_target_nodes()
 	if nodes.is_empty():
 		return
 	# Toggle based on first node's current state
 	var new_state = not nodes[0].settings.debug_enabled if nodes[0].settings else true
+	var prev_auto_regen := _begin_debug_state_batch()
 	var names := PackedStringArray()
+	var changed_nodes := []
 	for node in nodes:
-		if node is FlowNodeBase and node.settings:
-			node.settings.debug_enabled = new_state
-			node.dirty = true
-			node.refreshFromSettings()
-			names.append(node.settings.title)
+		_set_node_debug_enabled(node, new_state, changed_nodes, names)
+	_finish_debug_state_batch(prev_auto_regen, changed_nodes)
 	var state_str = "ON" if new_state else "OFF"
 	update_status_bar("Debug %s: %s" % [state_str, ", ".join(names)])
-	_refresh_inspector_if_showing_nodes(nodes)
-	queueRegen()
+	_refresh_inspector_if_showing_nodes(changed_nodes)
 
 func _hotkey_clear_all_debug():
 	var count := 0
 	var changed_nodes := []
+	var prev_auto_regen := _begin_debug_state_batch()
 	for child in gedit.get_children():
 		var node = child as FlowNodeBase
 		if node and node.settings and node.settings.debug_enabled:
-			node.settings.debug_enabled = false
-			node.dirty = true
-			node.refreshFromSettings()
-			changed_nodes.append(node)
+			_set_node_debug_enabled(node, false, changed_nodes)
 			count += 1
+	_finish_debug_state_batch(prev_auto_regen, changed_nodes)
 	update_status_bar("Debug cleared on %d nodes" % count)
 	_refresh_inspector_if_showing_nodes(changed_nodes)
-	queueRegen()
 
 func _hotkey_toggle_inspect():
 	# Try hovered node first, then fall back to selection
@@ -2682,22 +2704,27 @@ func analyzeNode(node: FlowNodeBase):
 			return
 	data_inspector.setNode(null)
 	data_inspector.setNode(node)
-	markAllNodesAsDirty()
 	node.refreshFromSettings()
 	_set_analyze_panel_visible(true)
 	current_analyzed_node = node
 	auto_regen = prev_auto_regen
-	regen_pending = false
-	_eval_graph_for_analyze(node)
+	_run_forced_graph_eval(node)
 	data_inspector.refresh()
 	_refresh_inspector_if_showing_nodes([previous_node, node])
 	if make_inspector_visible and make_inspector_visible.is_valid():
 		make_inspector_visible.call()
 
-func _eval_graph_for_analyze(node: FlowNodeBase) -> void:
+func _run_forced_graph_eval(analyze_node: FlowNodeBase = null) -> void:
+	regen_pending = false
+	if regen_running:
+		_cancel_regen_run()
+	markAllNodesAsDirty()
+	if analyze_node == null:
+		evalGraph()
+		return
 	var had_analyze_node := ctx.runtime_params.has("flow_analyze_node")
 	var old_analyze_node = ctx.runtime_params.get("flow_analyze_node")
-	ctx.runtime_params["flow_analyze_node"] = node.name if node else ""
+	ctx.runtime_params["flow_analyze_node"] = analyze_node.name
 	evalGraph()
 	if had_analyze_node:
 		ctx.runtime_params["flow_analyze_node"] = old_analyze_node
@@ -3552,16 +3579,12 @@ func _on_graph_edit_gui_input(event):
 
 func toggleDebug():
 	var nodes = getSelectedNodes()
-	var prev_auto_regen := auto_regen
-	auto_regen = false
+	var prev_auto_regen := _begin_debug_state_batch()
+	var changed_nodes := []
 	for node in nodes:
-		node.settings.debug_enabled = !node.settings.debug_enabled
-		node.dirty = true
-		node.refreshFromSettings()
-	auto_regen = prev_auto_regen
-	regen_pending = false
-	markAllNodesAsDirty()
-	evalGraph()
+		if node is FlowNodeBase and node.settings:
+			_set_node_debug_enabled(node, !node.settings.debug_enabled, changed_nodes)
+	_finish_debug_state_batch(prev_auto_regen, changed_nodes)
 
 func toggleDisabled():
 	var nodes = getSelectedNodes()
@@ -3584,13 +3607,11 @@ func toggleInspection():
 		return
 	var node = nodes[0]
 	data_inspector.setNode( node )
-	markAllNodesAsDirty()
 	node.refreshFromSettings()
 	_set_analyze_panel_visible(true)
 	current_analyzed_node = node
 	auto_regen = prev_auto_regen
-	regen_pending = false
-	_eval_graph_for_analyze(node)
+	_run_forced_graph_eval(node)
 	data_inspector.refresh()
 
 func analyzeSelection():
@@ -3620,13 +3641,11 @@ func analyzeSelection():
 	# Force rebind so repeated Analyze on the same node stays active.
 	data_inspector.setNode(null)
 	data_inspector.setNode(node)
-	markAllNodesAsDirty()
 	node.refreshFromSettings()
 	_set_analyze_panel_visible(true)
 	current_analyzed_node = node
 	auto_regen = prev_auto_regen
-	regen_pending = false
-	_eval_graph_for_analyze(node)
+	_run_forced_graph_eval(node)
 	data_inspector.refresh()
 	_refresh_inspector_if_showing_nodes([previous_node, node])
 	if make_inspector_visible and make_inspector_visible.is_valid():
