@@ -10,6 +10,7 @@ extends GraphNode
 		if settings and settings.changed.is_connected(_on_settings_changed):
 			settings.changed.disconnect(_on_settings_changed)
 		settings = new_value
+		_sync_debug_enabled_snapshot()
 		if settings:
 			settings.changed.connect(_on_settings_changed)
 
@@ -18,11 +19,30 @@ func _exit_tree():
 		settings.changed.disconnect(_on_settings_changed)
 
 func _on_settings_changed():
+	if _handle_debug_enabled_settings_change():
+		return
 	dirty = true
 	refreshFromSettings()
 	var editor = getEditor()
 	if editor:
 		editor.queueRegen()
+
+func _sync_debug_enabled_snapshot() -> void:
+	_last_debug_enabled = bool(settings.debug_enabled) if settings != null else false
+
+func _handle_debug_enabled_settings_change() -> bool:
+	if settings == null:
+		return false
+	var debug_enabled := bool(settings.debug_enabled)
+	if debug_enabled == _last_debug_enabled:
+		return false
+	_last_debug_enabled = debug_enabled
+	var editor = getEditor()
+	if editor != null and editor.has_method("_on_node_debug_setting_changed"):
+		editor.call("_on_node_debug_setting_changed", self)
+	else:
+		refreshFromSettings()
+	return true
 
 var rng : RandomNumberGenerator = RandomNumberGenerator.new()
 
@@ -61,6 +81,7 @@ var ui_scale = 1.0
 var marker_radius : float = 9
 
 var debug_row : int = -1
+var _last_debug_enabled := false
 
 func _ready():
 	ignore_invalid_connection_type = true
@@ -171,6 +192,9 @@ func refreshInspectMark():
 	redrawUI()
 	
 func onPropChanged( prop_name : String ):
+	if prop_name == "debug_enabled":
+		_handle_debug_enabled_settings_change()
+		return
 	dirty = true
 
 func get_deterministic_color() -> Color:

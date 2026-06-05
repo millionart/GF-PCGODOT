@@ -72,6 +72,10 @@ var comment_padding = Vector2( 40, 40 )
 # Required during evaluation
 var gedit_nodes_by_name = {}
 var input_sources := {} # key: Pair(to_node, to_port) -> value: Array[(from_node, from_port)]
+var eval_cache: Dictionary = {}
+var eval_cache_order: Array = []
+var eval_cache_hits := 0
+var eval_cache_misses := 0
 
 # Activate connections and nodes
 var active_intensity = 0.0
@@ -101,6 +105,50 @@ const RIGHT_DRAG_PAN_THRESHOLD := 4.0
 const SAVE_DEBOUNCE_SECONDS := 0.35
 const SAVE_FEEDBACK_HOLD_MSEC := 2000
 const AUTO_REGEN_FRAME_BUDGET_USEC := 5000
+const ANALYZE_OUTPUT_READY_META := &"flow_analyze_output_ready"
+const EVAL_CACHE_MAX_ENTRIES := 512
+const EVAL_CACHE_IGNORED_SETTING_PROPS := {
+	"debug_bulk": true,
+	"debug_color": true,
+	"debug_mode": true,
+	"debug_modulate_by": true,
+	"debug_output": true,
+	"debug_scale": true,
+	"resource_local_to_scene": true,
+	"resource_name": true,
+	"resource_path": true,
+	"script": true,
+	"title": true,
+	"trace": true,
+}
+const EVAL_CACHE_IGNORED_RUNTIME_KEYS := {
+	"__eval_depth": true,
+	"mapgen_variables": true,
+}
+const EVAL_CACHE_UNCACHEABLE_TEMPLATES := {
+	"apply_on_actor": true,
+	"create_spline": true,
+	"debug": true,
+	"get_variable": true,
+	"navigation_region_sampler": true,
+	"physics_overlap_query": true,
+	"physics_shape_sweep": true,
+	"point_from_player_pawn": true,
+	"points_from_gridmap": true,
+	"points_from_imported_scene": true,
+	"points_from_scene": true,
+	"points_from_tilemap": true,
+	"ray_cast": true,
+	"sample_mesh": true,
+	"sample_spline": true,
+	"scan_meshes": true,
+	"scan_nodes": true,
+	"scan_splines": true,
+	"set_variable": true,
+	"spawn_meshes": true,
+	"spawn_nodes": true,
+	"spawn_scenes": true,
+}
 const EDITOR_DYNAMIC_UI_META := &"flow_editor_dynamic_ui"
 var right_drag_pan_active := false
 var right_drag_pan_moved := false
@@ -750,11 +798,7 @@ func mcp_show_analyze_for_node(node: FlowNodeBase) -> Dictionary:
 		return {"ok": false, "error": "data_inspector missing"}
 	var prev_auto_regen := auto_regen
 	auto_regen = false
-	data_inspector.setNode(null)
-	data_inspector.setNode(node)
-	node.refreshFromSettings()
-	_set_analyze_panel_visible(true)
-	current_analyzed_node = node
+	_show_analyze_panel_for_node(node)
 	auto_regen = prev_auto_regen
 	regen_pending = false
 	data_inspector.refresh()
@@ -2559,7 +2603,8 @@ func _set_node_debug_enabled(
 	if flow_node == null or flow_node.settings == null:
 		return
 	flow_node.settings.debug_enabled = debug_enabled
-	flow_node.dirty = true
+	if flow_node.has_method("_sync_debug_enabled_snapshot"):
+		flow_node.call("_sync_debug_enabled_snapshot")
 	flow_node.refreshFromSettings()
 	changed_nodes.append(flow_node)
 	names.append(flow_node.settings.title)
@@ -2568,7 +2613,85 @@ func _finish_debug_state_batch(prev_auto_regen: bool, changed_nodes: Array) -> v
 	auto_regen = prev_auto_regen
 	if changed_nodes.is_empty():
 		return
+	if _try_refresh_debug_draw_from_existing_outputs(changed_nodes):
+		return
 	_run_forced_graph_eval()
+
+func _on_node_debug_setting_changed(node: FlowNodeBase) -> void:
+	if node == null or node.settings == null:
+		return
+	if node.has_method("_sync_debug_enabled_snapshot"):
+		node.call("_sync_debug_enabled_snapshot")
+	node.refreshFromSettings()
+	var prev_auto_regen := _begin_debug_state_batch()
+	_finish_debug_state_batch(prev_auto_regen, [node])
+
+func _try_refresh_debug_draw_from_existing_outputs(nodes: Array) -> bool:
+	if regen_pending or regen_running:
+		return false
+	for node in nodes:
+		var flow_node := node as FlowNodeBase
+		if flow_node == null or flow_node.settings == null:
+			continue
+		if flow_node.settings.debug_enabled and not _node_has_debug_drawable_output(flow_node):
+			return false
+	for node in nodes:
+		var flow_node := node as FlowNodeBase
+		if flow_node == null or flow_node.settings == null:
+			continue
+		if flow_node.settings.debug_enabled:
+			flow_node.setupDrawDebug()
+	return true
+
+func _node_has_debug_drawable_output(node: FlowNodeBase) -> bool:
+	if node == null or node.settings == null:
+		return false
+	if node.dirty:
+		return false
+	if node.generated_bulks.is_empty():
+		return false
+	var bulk_index := clampi(node.settings.debug_bulk, 0, node.generated_bulks.size() - 1)
+	var bulk = node.generated_bulks[bulk_index]
+	if not (bulk is Array) or bulk.is_empty():
+		return false
+	var port_index := clampi(node.settings.debug_output, 0, bulk.size() - 1)
+	var out_data := bulk[port_index] as FlowData.Data
+	return out_data != null and out_data.hasStream(FlowData.AttrPosition)
+
+func _show_analyze_panel_for_node(node: FlowNodeBase) -> void:
+	data_inspector.setNode(null)
+	data_inspector.setNode(node)
+	node.refreshFromSettings()
+	_set_analyze_panel_visible(true)
+	current_analyzed_node = node
+
+func _node_has_output_data(node: FlowNodeBase) -> bool:
+	if node == null or node.settings == null:
+		return false
+	if node.dirty:
+		return false
+	if node.generated_bulks.is_empty():
+		return false
+	var bulk_index := clampi(node.settings.debug_bulk, 0, node.generated_bulks.size() - 1)
+	var bulk = node.generated_bulks[bulk_index]
+	if not (bulk is Array) or bulk.is_empty():
+		return false
+	var port_index := clampi(node.settings.debug_output, 0, bulk.size() - 1)
+	return node.get_bulk_output(bulk_index, port_index) != null
+
+func _can_show_analyze_from_existing_outputs(node: FlowNodeBase) -> bool:
+	if not _node_has_output_data(node):
+		return false
+	if node.has_meta(ANALYZE_OUTPUT_READY_META):
+		return true
+	return _node_has_debug_drawable_output(node)
+
+func _refresh_analyze_panel_for_node(node: FlowNodeBase, previous_node: FlowNodeBase = null) -> void:
+	_show_analyze_panel_for_node(node)
+	if not _can_show_analyze_from_existing_outputs(node):
+		_run_forced_graph_eval(node)
+	data_inspector.refresh()
+	_refresh_inspector_if_showing_nodes([previous_node, node])
 
 func _hotkey_toggle_debug():
 	var nodes = _get_hotkey_target_nodes()
@@ -2702,15 +2825,8 @@ func analyzeNode(node: FlowNodeBase):
 			regen_pending = false
 			_refresh_inspector_if_showing_nodes([node])
 			return
-	data_inspector.setNode(null)
-	data_inspector.setNode(node)
-	node.refreshFromSettings()
-	_set_analyze_panel_visible(true)
-	current_analyzed_node = node
 	auto_regen = prev_auto_regen
-	_run_forced_graph_eval(node)
-	data_inspector.refresh()
-	_refresh_inspector_if_showing_nodes([previous_node, node])
+	_refresh_analyze_panel_for_node(node, previous_node)
 	if make_inspector_visible and make_inspector_visible.is_valid():
 		make_inspector_visible.call()
 
@@ -2945,6 +3061,10 @@ func onNodePropertyChanged( prop_name : String):
 		return
 	if inspected_node and inspected_node is GraphNode:
 		#print( "Node %s.%s has changed" % [ inspected_node.name, prop_name ])
+		if prop_name == "debug_enabled" and inspected_node is FlowNodeBase:
+			_on_node_debug_setting_changed(inspected_node)
+			queueSave()
+			return
 		inspected_node.onPropChanged( prop_name )
 		inspected_node.refreshFromSettings()
 		if inspected_node is FlowNodeBase and (inspected_node.node_template == "input" or inspected_node.node_template.begins_with("input_")):
@@ -3606,13 +3726,8 @@ func toggleInspection():
 		regen_pending = false
 		return
 	var node = nodes[0]
-	data_inspector.setNode( node )
-	node.refreshFromSettings()
-	_set_analyze_panel_visible(true)
-	current_analyzed_node = node
 	auto_regen = prev_auto_regen
-	_run_forced_graph_eval(node)
-	data_inspector.refresh()
+	_refresh_analyze_panel_for_node(node)
 
 func analyzeSelection():
 	if not data_inspector:
@@ -3639,15 +3754,8 @@ func analyzeSelection():
 		return
 	var node = nodes[0]
 	# Force rebind so repeated Analyze on the same node stays active.
-	data_inspector.setNode(null)
-	data_inspector.setNode(node)
-	node.refreshFromSettings()
-	_set_analyze_panel_visible(true)
-	current_analyzed_node = node
 	auto_regen = prev_auto_regen
-	_run_forced_graph_eval(node)
-	data_inspector.refresh()
-	_refresh_inspector_if_showing_nodes([previous_node, node])
+	_refresh_analyze_panel_for_node(node, previous_node)
 	if make_inspector_visible and make_inspector_visible.is_valid():
 		make_inspector_visible.call()
 
@@ -5080,9 +5188,411 @@ func expandDirtyFlagToDependants( node : FlowNodeBase ):
 				dst_node.dirty = true
 				expandDirtyFlagToDependants( dst_node )
 
+func _clear_eval_cache() -> void:
+	eval_cache.clear()
+	eval_cache_order.clear()
+	eval_cache_hits = 0
+	eval_cache_misses = 0
+
+func mcp_get_eval_cache_stats() -> Dictionary:
+	return {
+		"entries": eval_cache.size(),
+		"hits": eval_cache_hits,
+		"misses": eval_cache_misses,
+	}
+
+func _eval_cache_sort_variant_by_string(a, b) -> bool:
+	return str(a) < str(b)
+
+func _eval_cache_metadata_for_template(template_name: String) -> Dictionary:
+	if node_types.has(template_name):
+		return node_types[template_name]
+	var metadata := FlowNodeRegistry.get_node_metadata(template_name)
+	if not metadata.is_empty():
+		return metadata
+	return {}
+
+func _is_uncacheable_eval_template(template_name: String, metadata: Dictionary) -> bool:
+	if EVAL_CACHE_UNCACHEABLE_TEMPLATES.has(template_name):
+		return true
+	if bool(metadata.get("scans_scene", false)):
+		return true
+	if bool(metadata.get("is_final", false)) and template_name != "subgraph" and template_name != "loop":
+		return true
+	return false
+
+func _graph_has_uncacheable_eval_cache_nodes(graph: FlowGraphResource, visited = null) -> bool:
+	if graph == null:
+		return false
+	if visited == null:
+		visited = {}
+	var graph_id := graph.get_instance_id()
+	if visited.has(graph_id):
+		return false
+	visited[graph_id] = true
+	var nodes: Array = graph.data.get("nodes", [])
+	for node_data in nodes:
+		if not (node_data is Dictionary):
+			continue
+		var template_name := String(node_data.get("template", ""))
+		var metadata := _eval_cache_metadata_for_template(template_name)
+		if _is_uncacheable_eval_template(template_name, metadata):
+			return true
+		if template_name == "subgraph" or template_name == "loop":
+			var child_graph := _eval_cache_graph_from_settings(node_data.get("settings", {}))
+			if _graph_has_uncacheable_eval_cache_nodes(child_graph, visited):
+				return true
+	return false
+
+func _eval_cache_graph_from_settings(settings_value) -> FlowGraphResource:
+	if settings_value is Resource and "graph" in settings_value:
+		return settings_value.graph
+	if settings_value is Dictionary:
+		var graph_value = settings_value.get("graph", null)
+		if graph_value is FlowGraphResource:
+			return graph_value
+	return null
+
+func _should_eval_cache_node(node: FlowNodeBase) -> bool:
+	if node == null or node.settings == null:
+		return false
+	var template_name := String(node.node_template)
+	var metadata := node.getMeta()
+	if _is_uncacheable_eval_template(template_name, metadata):
+		return false
+	if template_name == "subgraph" or template_name == "loop":
+		var child_graph := _eval_cache_graph_from_settings(node.settings)
+		if _graph_has_uncacheable_eval_cache_nodes(child_graph):
+			return false
+	return true
+
+func _eval_cache_key_for_node(node: FlowNodeBase) -> Dictionary:
+	var fingerprint := [
+		"flow_eval_cache_v1",
+		_eval_cache_root_graph_fingerprint(current_resource),
+		String(node.name),
+		String(node.node_template),
+		_eval_cache_settings_fingerprint(node.settings),
+		_eval_cache_runtime_fingerprint(ctx.runtime_params),
+		_eval_cache_owner_args_fingerprint(),
+		_eval_cache_owner_debug_fixture_fingerprint(),
+		_eval_cache_connection_fingerprint(node),
+		_eval_cache_inputs_fingerprint(node),
+	]
+	return {
+		"hash": hash(fingerprint),
+		"fingerprint": fingerprint,
+	}
+
+func _eval_cache_root_graph_fingerprint(graph: FlowGraphResource) -> Array:
+	if graph == null:
+		return ["Graph", null]
+	return [
+		"Graph",
+		graph.resource_path,
+		graph.get_instance_id() if graph.resource_path == "" else 0,
+		_eval_cache_graph_params_fingerprint(graph.in_params),
+		_eval_cache_graph_params_fingerprint(graph.out_params),
+	]
+
+func _eval_cache_graph_resource_fingerprint(graph: FlowGraphResource, depth: int = 0) -> Array:
+	if graph == null:
+		return ["FlowGraphResource", null]
+	if depth > 6:
+		return ["FlowGraphResource", graph.resource_path, graph.get_instance_id()]
+	var nodes := []
+	var node_items: Array = graph.data.get("nodes", [])
+	for node_data in node_items:
+		if not (node_data is Dictionary):
+			continue
+		nodes.append([
+			String(node_data.get("name", "")),
+			String(node_data.get("template", "")),
+			_eval_cache_value_fingerprint(node_data.get("args_port", {}), depth + 1),
+			_eval_cache_value_fingerprint(node_data.get("settings", {}), depth + 1),
+		])
+	nodes.sort_custom(_eval_cache_sort_variant_by_string)
+	var links := []
+	var link_items: Array = graph.data.get("links", [])
+	for link_data in link_items:
+		if not (link_data is Dictionary):
+			continue
+		links.append([
+			String(link_data.get("from_node", "")),
+			int(link_data.get("from_port", -1)),
+			String(link_data.get("to_node", "")),
+			int(link_data.get("to_port", -1)),
+		])
+	return [
+		"FlowGraphResource",
+		graph.resource_path,
+		graph.get_instance_id() if graph.resource_path == "" else 0,
+		_eval_cache_graph_params_fingerprint(graph.in_params),
+		_eval_cache_graph_params_fingerprint(graph.out_params),
+		nodes,
+		links,
+	]
+
+func _eval_cache_graph_params_fingerprint(params: Array) -> Array:
+	var result := []
+	for param in params:
+		result.append(_eval_cache_value_fingerprint(param))
+	return result
+
+func _eval_cache_settings_fingerprint(settings_value: Resource) -> Array:
+	if settings_value == null:
+		return []
+	return _eval_cache_resource_storage_fingerprint(settings_value, 0)
+
+func _eval_cache_runtime_fingerprint(runtime_params: Dictionary) -> Array:
+	var keys := runtime_params.keys()
+	keys.sort_custom(_eval_cache_sort_variant_by_string)
+	var result := []
+	for key in keys:
+		var key_name := String(key)
+		if EVAL_CACHE_IGNORED_RUNTIME_KEYS.has(key_name):
+			continue
+		result.append([key_name, _eval_cache_value_fingerprint(runtime_params[key])])
+	return result
+
+func _eval_cache_owner_args_fingerprint() -> Array:
+	if ctx.owner == null or not ("args" in ctx.owner):
+		return []
+	return _eval_cache_value_fingerprint(ctx.owner.args)
+
+func _eval_cache_owner_debug_fixture_fingerprint() -> Array:
+	if ctx.owner == null:
+		return []
+	if not ctx.owner.has_meta("flow_debug_graph") or not ctx.owner.has_meta("flow_debug_input_data_map"):
+		return []
+	return [
+		_eval_cache_value_fingerprint(ctx.owner.get_meta("flow_debug_graph")),
+		_eval_cache_value_fingerprint(ctx.owner.get_meta("flow_debug_input_data_map")),
+	]
+
+func _eval_cache_connection_fingerprint(node: FlowNodeBase) -> Array:
+	var result := []
+	for conn in node.deps:
+		result.append([
+			String(conn.get("from_node", "")),
+			int(conn.get("from_port", -1)),
+			String(conn.get("to_node", "")),
+			int(conn.get("to_port", -1)),
+			bool(conn.get("virtual_variable", false)),
+		])
+	return result
+
+func _eval_cache_inputs_fingerprint(node: FlowNodeBase) -> Array:
+	var result := []
+	for conn in node.deps:
+		if bool(conn.get("virtual_variable", false)):
+			continue
+		var src_node := gedit_nodes_by_name.get(conn.get("from_node", null)) as FlowNodeBase
+		var from_port := int(conn.get("from_port", -1))
+		var src_outputs := []
+		if src_node != null and from_port >= 0:
+			for bulk in src_node.generated_bulks:
+				if bulk is Array and from_port < bulk.size():
+					src_outputs.append(_eval_cache_data_fingerprint(bulk[from_port]))
+				else:
+					src_outputs.append(null)
+		result.append([
+			String(conn.get("from_node", "")),
+			from_port,
+			int(conn.get("to_port", -1)),
+			src_outputs,
+		])
+	return result
+
+func _eval_cache_value_fingerprint(value, depth: int = 0):
+	if depth > 8:
+		return ["depth", typeof(value), str(value)]
+	var type_id := typeof(value)
+	if type_id == TYPE_NIL:
+		return null
+	if type_id == TYPE_BOOL or type_id == TYPE_INT or type_id == TYPE_FLOAT or type_id == TYPE_STRING or type_id == TYPE_STRING_NAME:
+		return value
+	if type_id == TYPE_VECTOR2 or type_id == TYPE_VECTOR3 or type_id == TYPE_VECTOR4 or type_id == TYPE_RECT2 or type_id == TYPE_COLOR or type_id == TYPE_NODE_PATH or type_id == TYPE_TRANSFORM2D or type_id == TYPE_TRANSFORM3D or type_id == TYPE_BASIS or type_id == TYPE_QUATERNION or type_id == TYPE_PROJECTION or type_id == TYPE_PLANE or type_id == TYPE_AABB:
+		return var_to_str(value)
+	if value is FlowData.Data:
+		return _eval_cache_data_fingerprint(value)
+	if value is FlowGraphResource:
+		return _eval_cache_graph_resource_fingerprint(value, depth + 1)
+	if value is Resource:
+		return _eval_cache_resource_storage_fingerprint(value, depth + 1)
+	if type_id == TYPE_DICTIONARY:
+		var keys: Array = value.keys()
+		keys.sort_custom(_eval_cache_sort_variant_by_string)
+		var result := []
+		for key in keys:
+			result.append([
+				_eval_cache_value_fingerprint(key, depth + 1),
+				_eval_cache_value_fingerprint(value[key], depth + 1),
+			])
+		return result
+	if type_id == TYPE_ARRAY:
+		var result := []
+		for item in value:
+			result.append(_eval_cache_value_fingerprint(item, depth + 1))
+		return result
+	if _eval_cache_is_packed_array_type(type_id):
+		return [type_id, value.size(), hash(value)]
+	if value is Node:
+		return ["Node", value.get_class(), value.get_path() if value.is_inside_tree() else "", value.get_instance_id()]
+	if value is Object:
+		return ["Object", value.get_class(), value.get_instance_id()]
+	return var_to_str(value)
+
+func _eval_cache_is_packed_array_type(type_id: int) -> bool:
+	return (
+		type_id == TYPE_PACKED_BYTE_ARRAY
+		or type_id == TYPE_PACKED_INT32_ARRAY
+		or type_id == TYPE_PACKED_INT64_ARRAY
+		or type_id == TYPE_PACKED_FLOAT32_ARRAY
+		or type_id == TYPE_PACKED_FLOAT64_ARRAY
+		or type_id == TYPE_PACKED_STRING_ARRAY
+		or type_id == TYPE_PACKED_VECTOR2_ARRAY
+		or type_id == TYPE_PACKED_VECTOR3_ARRAY
+		or type_id == TYPE_PACKED_VECTOR4_ARRAY
+		or type_id == TYPE_PACKED_COLOR_ARRAY
+	)
+
+func _eval_cache_resource_storage_fingerprint(resource: Resource, depth: int = 0) -> Array:
+	if resource == null:
+		return ["Resource", null]
+	if depth > 6:
+		return ["Resource", resource.get_class(), resource.resource_path, resource.get_instance_id()]
+	var props := []
+	for prop in resource.get_property_list():
+		var prop_name := String(prop.name)
+		if prop_name in FlowNodeAssets.discardted_props:
+			continue
+		if EVAL_CACHE_IGNORED_SETTING_PROPS.has(prop_name):
+			continue
+		if (int(prop.usage) & PROPERTY_USAGE_STORAGE) == 0:
+			continue
+		props.append([
+			prop_name,
+			_eval_cache_value_fingerprint(resource.get(prop_name), depth + 1),
+		])
+	props.sort_custom(_eval_cache_sort_variant_by_string)
+	return [
+		"Resource",
+		resource.get_class(),
+		resource.resource_path,
+		resource.get_instance_id() if resource.resource_path == "" else 0,
+		props,
+	]
+
+func _eval_cache_data_fingerprint(data) -> Array:
+	if not (data is FlowData.Data):
+		return ["Data", null]
+	var stream_keys: Array = data.streams.keys()
+	stream_keys.sort_custom(_eval_cache_sort_variant_by_string)
+	var streams := []
+	for stream_name in stream_keys:
+		var stream: Dictionary = data.streams[stream_name]
+		streams.append([
+			String(stream.get("name", stream_name)),
+			int(stream.get("data_type", FlowData.DataType.Invalid)),
+			_eval_cache_value_fingerprint(stream.get("container", null)),
+		])
+	return [
+		"Data",
+		String(data.last_added_stream_name),
+		_eval_cache_value_fingerprint(data.tags),
+		streams,
+	]
+
+func _eval_cache_duplicate_data(data):
+	if data is FlowData.Data:
+		return data.duplicate()
+	return data
+
+func _eval_cache_duplicate_data_array(values: Array) -> Array:
+	var result := []
+	for value in values:
+		result.append(_eval_cache_duplicate_data(value))
+	return result
+
+func _eval_cache_duplicate_bulks(bulks: Array) -> Array:
+	var result := []
+	for bulk in bulks:
+		if bulk is Array:
+			result.append(_eval_cache_duplicate_data_array(bulk))
+		else:
+			result.append(bulk)
+	return result
+
+func _try_restore_eval_cache_entry(node: FlowNodeBase, key_info: Dictionary) -> bool:
+	var cache_hash = key_info.get("hash", null)
+	if not eval_cache.has(cache_hash):
+		eval_cache_misses += 1
+		return false
+	var entry: Dictionary = eval_cache[cache_hash]
+	if entry.get("fingerprint") != key_info.get("fingerprint"):
+		eval_cache_misses += 1
+		return false
+	node.input_bulks = _eval_cache_duplicate_bulks(entry.get("input_bulks", []))
+	node.generated_bulks = _eval_cache_duplicate_bulks(entry.get("generated_bulks", []))
+	node.inputs = _eval_cache_duplicate_data_array(entry.get("inputs", []))
+	node.num_connected_bulks = int(entry.get("num_connected_bulks", 0))
+	node.num_generated_bulks = int(entry.get("num_generated_bulks", 0))
+	node.err = ""
+	eval_cache_hits += 1
+	return true
+
+func _store_eval_cache_entry(node: FlowNodeBase, key_info: Dictionary) -> void:
+	if EVAL_CACHE_MAX_ENTRIES <= 0:
+		return
+	if node.err != "":
+		return
+	var cache_hash = key_info.get("hash", null)
+	eval_cache[cache_hash] = {
+		"fingerprint": key_info.get("fingerprint"),
+		"input_bulks": _eval_cache_duplicate_bulks(node.input_bulks),
+		"generated_bulks": _eval_cache_duplicate_bulks(node.generated_bulks),
+		"inputs": _eval_cache_duplicate_data_array(node.inputs),
+		"num_connected_bulks": node.num_connected_bulks,
+		"num_generated_bulks": node.num_generated_bulks,
+	}
+	eval_cache_order.append(cache_hash)
+	while eval_cache_order.size() > EVAL_CACHE_MAX_ENTRIES:
+		var old_hash = eval_cache_order.pop_front()
+		eval_cache.erase(old_hash)
+
+func _finish_evaluated_graph_node(
+	node: FlowNodeBase,
+	performance: Array,
+	time_node_start: int,
+	cached: bool = false
+) -> void:
+	_update_analyze_output_ready_meta(node)
+	if node.settings.inspect_enabled:
+		_queue_data_inspector_refresh(node)
+	if FlowVariableEval.should_refresh_debug_draw( node ):
+		node.setupDrawDebug()
+	node.dirty = false
+	var time_node_ends = Time.get_ticks_usec()
+	var exec_usec = time_node_ends - time_node_start
+	node.setExecTime(exec_usec)
+	if dump_performance:
+		performance.append( { "name": node.name, "time": exec_usec, "cached": cached } )
+
+func _update_analyze_output_ready_meta(node: FlowNodeBase) -> void:
+	if node == null:
+		return
+	var analyze_node_name := String(ctx.runtime_params.get("flow_analyze_node", ""))
+	if analyze_node_name != "" and analyze_node_name == String(node.name):
+		node.set_meta(ANALYZE_OUTPUT_READY_META, true)
+	else:
+		node.remove_meta(ANALYZE_OUTPUT_READY_META)
+
 func _begin_eval_graph() -> Dictionary:
 	ctx.eval_id += 1
 	ctx.variables.clear()
+	eval_cache_hits = 0
+	eval_cache_misses = 0
 	
 	var time_start = Time.get_ticks_usec()
 	
@@ -5122,6 +5632,13 @@ func _evaluate_graph_node(node: FlowNodeBase, performance: Array) -> void:
 	active_nodes.append( node )
 
 	node.preExecute( ctx )
+	var can_cache := _should_eval_cache_node(node)
+	var cache_key := {}
+	if can_cache:
+		cache_key = _eval_cache_key_for_node(node)
+		if _try_restore_eval_cache_entry(node, cache_key):
+			_finish_evaluated_graph_node(node, performance, time_node_start, true)
+			return
 
 	#print( "Evaluating %s" % node.name )
 	if node.settings.disabled:
@@ -5129,19 +5646,9 @@ func _evaluate_graph_node(node: FlowNodeBase, performance: Array) -> void:
 	elif not FlowVariableEval.try_fast_execute( node, ctx, ctx.gedit_nodes_by_name ):
 		node.run( ctx )
 
-	if node.settings.inspect_enabled:
-		_queue_data_inspector_refresh(node)
-	if FlowVariableEval.should_refresh_debug_draw( node ):
-		node.setupDrawDebug()
-	node.dirty = false
-	var time_node_ends = Time.get_ticks_usec()
-	var exec_usec = time_node_ends - time_node_start
-
-	# Always show execution time on the node
-	node.setExecTime(exec_usec)
-
-	if dump_performance:
-		performance.append( { "name": node.name, "time": exec_usec })
+	if can_cache:
+		_store_eval_cache_entry(node, cache_key)
+	_finish_evaluated_graph_node(node, performance, time_node_start, false)
 
 func _queue_data_inspector_refresh(node: FlowNodeBase) -> void:
 	if data_inspector and analyze_panel and analyze_panel.visible and node == current_analyzed_node:
@@ -5218,6 +5725,7 @@ func _reload_current_graph_with_loading() -> void:
 		return
 
 	graph_reload_in_progress = true
+	_clear_eval_cache()
 	_set_graph_loading_progress("Reloading Graph...", 8.0)
 	await get_tree().process_frame
 	_set_graph_loading_progress("Refreshing Resource...", 18.0)
@@ -5248,6 +5756,7 @@ func _reload_current_graph_with_loading() -> void:
 	graph_reload_in_progress = false
 
 func _on_node_registry_changed() -> void:
+	_clear_eval_cache()
 	if current_resource and save_pending:
 		saveResource()
 	if node_types.is_empty() and (

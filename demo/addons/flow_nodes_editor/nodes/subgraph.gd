@@ -68,23 +68,23 @@ func refreshFromSettings():
 	initFromScript()
 
 func _on_settings_changed() -> void:
+	if _handle_debug_enabled_settings_change():
+		return
 	dirty = true
 	refreshFromSettings()
-	if settings != null and settings.debug_enabled:
-		_queue_full_graph_eval_for_debug()
-		return
 	var editor = getEditor()
 	if editor:
 		editor.queueRegen()
 
 func onPropChanged( prop_name : String ):
+	if prop_name == "debug_enabled":
+		_handle_debug_enabled_settings_change()
+		return
 	super.onPropChanged( prop_name )
 	if prop_name == "graph":
 		if settings:
 			connectGraphParameterSignal(settings.graph, _on_graph_params_changed)
 		initFromScript()
-	elif prop_name == "debug_enabled" and settings != null and settings.debug_enabled:
-		_queue_full_graph_eval_for_debug()
 
 func execute( ctx : FlowData.EvaluationContext ):
 	if not settings.graph:
