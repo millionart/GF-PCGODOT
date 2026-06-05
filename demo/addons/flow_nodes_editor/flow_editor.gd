@@ -14,6 +14,7 @@ var regen_run_id := 0
 var save_pending := false
 var save_pending_delay := 0.0
 var save_pending_tabs := {}
+var save_queue_suppression_depth := 0
 var save_feedback_until_msec := 0
 var last_saved_resource_path := ""
 var auto_regen := true
@@ -157,6 +158,33 @@ func _set_current_graph_dirty(dirty: bool) -> void:
 		_set_tab_dirty(active_tab_index, dirty)
 
 
+func _begin_suppress_save_queue() -> void:
+	save_queue_suppression_depth += 1
+
+
+func _end_suppress_save_queue() -> void:
+	save_queue_suppression_depth = maxi(save_queue_suppression_depth - 1, 0)
+
+
+func _is_save_queue_suppressed() -> bool:
+	return save_queue_suppression_depth > 0
+
+
+func refreshGraphParameterNodeFromSignal(node: Node) -> void:
+	if node == null or not node.has_method("initFromScript"):
+		return
+	_begin_suppress_save_queue()
+	node.initFromScript()
+	_end_suppress_save_queue()
+
+
+func _clear_tab_pending_save(index: int) -> bool:
+	if not save_pending_tabs.has(index):
+		return false
+	save_pending_tabs.erase(index)
+	return true
+
+
 func _sync_save_pending_for_active_tab() -> void:
 	save_pending = _active_tab_is_valid() and save_pending_tabs.has(active_tab_index)
 	if save_pending and save_pending_delay <= 0.0:
@@ -198,6 +226,10 @@ func _mark_saved_resource_clean(saved_resource: FlowGraphResource, saved_path: S
 		if _is_tab_dirty(i):
 			open_tabs[i]["dirty"] = false
 			changed = true
+		changed = _clear_tab_pending_save(i) or changed
+	_sync_save_pending_for_active_tab()
+	if not save_pending:
+		save_pending_delay = 0.0
 	if changed:
 		_update_tab_titles()
 
@@ -861,10 +893,12 @@ func _switch_to_tab(index: int, new_owner = null):
 	var restored_cached_ui := _restore_cached_tab_graph_ui(index)
 	if not restored_cached_ui:
 		_ensure_active_graph_edit_for_uncached_tab()
+		_begin_suppress_save_queue()
 		_clear_ui_nodes()
 		_prepare_node_types_for_graph_load()
 		FlowNodeIO.loadFromResource( self )
 		repair_graph_integrity()
+		_end_suppress_save_queue()
 	
 	ctx.graph = current_resource
 	ctx.owner = resource_owner
@@ -1165,6 +1199,7 @@ func _switch_to_tab_with_loading(index: int, new_owner = null) -> void:
 
 	var restored_cached_ui := _restore_cached_tab_graph_ui(index)
 	if not restored_cached_ui:
+		_begin_suppress_save_queue()
 		_ensure_active_graph_edit_for_uncached_tab()
 		_set_graph_loading_progress("Clearing Graph...", 34.0)
 		_clear_ui_nodes()
@@ -1181,6 +1216,7 @@ func _switch_to_tab_with_loading(index: int, new_owner = null) -> void:
 	_set_graph_loading_progress("Finalizing Graph...", 96.0)
 	if not restored_cached_ui:
 		repair_graph_integrity()
+		_end_suppress_save_queue()
 	ctx.graph = current_resource
 	ctx.owner = resource_owner
 	ctx.gedit_nodes_by_name = gedit_nodes_by_name
@@ -1411,10 +1447,12 @@ func _on_filesystem_changed():
 
 	if resource_stale:
 		# Rebuild the UI from the fresh resource
+		_begin_suppress_save_queue()
 		_clear_ui_nodes()
 		node_types.clear()
 		_prepare_node_types_for_graph_load()
 		FlowNodeIO.loadFromResource(self)
+		_end_suppress_save_queue()
 		ctx.graph = current_resource
 		ctx.owner = resource_owner
 		ctx.gedit_nodes_by_name = gedit_nodes_by_name
@@ -1425,6 +1463,7 @@ func _on_filesystem_changed():
 		print("[DataFlow] Auto-reloaded graph from disk: %s" % current_resource.resource_path)
 	elif scripts_changed:
 		# Surgical hot-swap: update metadata on existing nodes and trigger regen
+		_begin_suppress_save_queue()
 		for child in gedit.get_children():
 			var node = child as FlowNodeBase
 			if node and node_types.has(node.node_template):
@@ -1434,23 +1473,34 @@ func _on_filesystem_changed():
 				node.meta_node.erase("factory")
 				node.initFromScript()
 				node.refreshFromSettings()
+		_end_suppress_save_queue()
 		markAllNodesAsDirty()
 		queueRegen()
 		update_status_bar()
 		print("[DataFlow] Successfully hot-swapped updated scripts.")
 
 
-func saveResource():
+func _serialize_current_graph_to_resource() -> void:
 	FlowNodeIO.saveToResource( self )
+
+
+func _clear_active_tab_pending_save() -> void:
 	if _active_tab_is_valid():
-		save_pending_tabs.erase(active_tab_index)
+		_clear_tab_pending_save(active_tab_index)
 	_sync_save_pending_for_active_tab()
-	save_pending_delay = 0.0
+	if not save_pending:
+		save_pending_delay = 0.0
+
+
+# Legacy EditorPlugin hook: syncs the in-memory resource, not a disk save.
+func saveResource():
+	_serialize_current_graph_to_resource()
+	_clear_active_tab_pending_save()
 
 func _save_current_resource_to_path(path: String) -> bool:
 	if not current_resource:
 		return false
-	saveResource()
+	_serialize_current_graph_to_resource()
 	var save_path := path
 	if save_path.get_extension().is_empty():
 		save_path += ".tres"
@@ -3005,6 +3055,8 @@ func deleteSelectedNodes():
 	record_undo_action("Delete Nodes", before_state)
 	
 func queueSave():
+	if _is_save_queue_suppressed():
+		return
 	save_feedback_until_msec = 0
 	last_saved_resource_path = ""
 	_set_current_graph_dirty(true)
@@ -5175,6 +5227,7 @@ func _reload_current_graph_with_loading() -> void:
 	_set_graph_loading_progress("Preparing Nodes...", 24.0)
 	_prepare_node_types_for_graph_load()
 	_set_graph_loading_progress("Clearing Graph...", 34.0)
+	_begin_suppress_save_queue()
 	_clear_ui_nodes()
 	if _should_use_fast_graph_load(current_resource):
 		FlowNodeIO.loadFromResource(self)
@@ -5182,6 +5235,7 @@ func _reload_current_graph_with_loading() -> void:
 		await FlowNodeIO.loadFromResourceWithProgress(self, Callable(self, "_set_graph_loading_progress"))
 	_set_graph_loading_progress("Finalizing Graph...", 96.0)
 	repair_graph_integrity()
+	_end_suppress_save_queue()
 	ctx.graph = current_resource
 	ctx.owner = resource_owner
 	ctx.gedit_nodes_by_name = gedit_nodes_by_name
@@ -5210,8 +5264,10 @@ func _on_node_registry_changed() -> void:
 	_prepare_node_types_for_graph_load()
 	if not current_resource:
 		return
+	_begin_suppress_save_queue()
 	_clear_ui_nodes()
 	FlowNodeIO.loadFromResource(self)
+	_end_suppress_save_queue()
 	ctx.graph = current_resource
 	ctx.owner = resource_owner
 	ctx.gedit_nodes_by_name = gedit_nodes_by_name

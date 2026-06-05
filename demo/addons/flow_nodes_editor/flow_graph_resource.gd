@@ -5,6 +5,7 @@ class_name FlowGraphResource
 # This the resource to store a full flow graph
 
 var _in_params_changed_queued := false
+var _in_params_changed_queued_connections := 0
 
 @export_category("Flow Graph Resource")
 
@@ -12,7 +13,6 @@ var _in_params_changed_queued := false
 @export var data: Dictionary = {}:
 	set(value):
 		data = value
-		_queue_in_params_changed()
 	get:
 		return data
 
@@ -41,10 +41,15 @@ func _queue_in_params_changed() -> void:
 	if _in_params_changed_queued:
 		return
 	_in_params_changed_queued = true
+	_in_params_changed_queued_connections = in_params_changed.get_connections().size()
 	call_deferred("_emit_in_params_changed")
 
 func _emit_in_params_changed() -> void:
+	var queued_connections := _in_params_changed_queued_connections
 	_in_params_changed_queued = false
+	_in_params_changed_queued_connections = 0
+	if queued_connections <= 0:
+		return
 	in_params_changed.emit()
 
 func _watch_input_changes():
