@@ -13,6 +13,8 @@ var regen_requested_while_running := false
 var regen_run_id := 0
 var save_pending := false
 var save_pending_delay := 0.0
+var save_feedback_until_msec := 0
+var last_saved_resource_path := ""
 var auto_regen := true
 var dump_performance := false
 var use_native_graph_grid := false
@@ -93,6 +95,7 @@ const IDM_FRAME_ADD_SELECTED_NODES : int = 300
 const IDM_FRAME_REMOVE_SELECTED_NODES : int = 301
 const RIGHT_DRAG_PAN_THRESHOLD := 4.0
 const SAVE_DEBOUNCE_SECONDS := 0.35
+const SAVE_FEEDBACK_HOLD_MSEC := 2000
 const AUTO_REGEN_FRAME_BUDGET_USEC := 5000
 const EDITOR_DYNAMIC_UI_META := &"flow_editor_dynamic_ui"
 var right_drag_pan_active := false
@@ -149,6 +152,33 @@ func _set_tab_dirty(index: int, dirty: bool) -> void:
 func _set_current_graph_dirty(dirty: bool) -> void:
 	if _active_tab_is_valid():
 		_set_tab_dirty(active_tab_index, dirty)
+
+
+func _mark_saved_resource_clean(saved_resource: FlowGraphResource, saved_path: String = "") -> void:
+	var changed := false
+	for i in range(open_tabs.size()):
+		var tab_res: FlowGraphResource = open_tabs[i].resource
+		if tab_res != saved_resource and (
+			saved_path == ""
+			or tab_res == null
+			or tab_res.resource_path != saved_path
+		):
+			continue
+		if _is_tab_dirty(i):
+			open_tabs[i]["dirty"] = false
+			changed = true
+	if changed:
+		_update_tab_titles()
+
+
+func _is_save_feedback_active() -> bool:
+	if save_feedback_until_msec <= 0:
+		return false
+	if Time.get_ticks_msec() <= save_feedback_until_msec:
+		return true
+	save_feedback_until_msec = 0
+	last_saved_resource_path = ""
+	return false
 
 
 func _editor_translate(message: String) -> String:
@@ -1092,6 +1122,9 @@ func _on_filesystem_changed():
 					else:
 						instance.free()
 
+	if _is_save_feedback_active() and last_saved_resource_path != "":
+		_mark_saved_resource_clean(null, last_saved_resource_path)
+
 	if resource_stale:
 		# Rebuild the UI from the fresh resource
 		_clear_ui_nodes()
@@ -1139,10 +1172,13 @@ func _save_current_resource_to_path(path: String) -> bool:
 	if err == OK:
 		current_resource.take_over_path(save_path)
 		last_graph_open_dir = save_path.get_base_dir()
-		_set_current_graph_dirty(false)
-		_update_tab_titles()
+		last_saved_resource_path = save_path
+		save_feedback_until_msec = Time.get_ticks_msec() + SAVE_FEEDBACK_HOLD_MSEC
+		_mark_saved_resource_clean(current_resource, save_path)
 		update_status_bar(FlowI18n.t("Saved Resource"))
 		return true
+	save_feedback_until_msec = 0
+	last_saved_resource_path = ""
 	update_status_bar("Save failed: %s" % error_string(err))
 	return false
 	
@@ -2483,11 +2519,15 @@ func _refresh_status_counts() -> void:
 func update_status_bar(eval_msg: String = ""):
 	_refresh_status_counts()
 	
+	var status_message := eval_msg
+	if status_message == "" and _is_save_feedback_active():
+		status_message = FlowI18n.t("Saved Resource")
+
 	var text_parts = []
 	text_parts.append(FlowI18n.count(status_nodes_count, "nodes"))
 	text_parts.append(FlowI18n.count(status_wires_count, "connections"))
-	if eval_msg != "":
-		text_parts.append(eval_msg)
+	if status_message != "":
+		text_parts.append(status_message)
 	elif inspected_node and inspected_node is FlowNodeBase and inspected_node.has_method("get_data_summary"):
 		var summary = inspected_node.get_data_summary()
 		if summary != "":
@@ -2666,6 +2706,8 @@ func deleteSelectedNodes():
 	record_undo_action("Delete Nodes", before_state)
 	
 func queueSave():
+	save_feedback_until_msec = 0
+	last_saved_resource_path = ""
 	_set_current_graph_dirty(true)
 	save_pending = true
 	save_pending_delay = SAVE_DEBOUNCE_SECONDS
