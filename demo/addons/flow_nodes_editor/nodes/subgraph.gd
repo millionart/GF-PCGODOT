@@ -172,7 +172,8 @@ func _debug_input_data_map() -> Dictionary:
 func setupDrawDebug() -> void:
 	if settings != null and settings.debug_enabled:
 		if not _debug_bulk_has_point_stream():
-			if not _debug_full_eval_running:
+			var editor = getEditor()
+			if not _debug_full_eval_running and not (editor != null and bool(editor.get("regen_running"))):
 				_queue_full_graph_eval_for_debug()
 			return
 	super.setupDrawDebug()
@@ -249,20 +250,27 @@ func _run_full_graph_eval_for_debug() -> void:
 	if settings == null or not settings.debug_enabled:
 		return
 	if _debug_bulk_has_point_stream():
-		setupDrawDebug()
+		super.setupDrawDebug()
+		_align_debug_draw_to_owner()
 		return
 	var editor = getEditor()
-	if editor == null or _debug_full_eval_running:
+	if editor == null or _debug_full_eval_running or bool(editor.get("regen_running")):
 		return
 	_debug_full_eval_running = true
 	dirty = true
-	if editor.has_method(&"_cancel_regen_run"):
-		editor.call(&"_cancel_regen_run")
-	if editor.has_method(&"markAllNodesAsDirty"):
-		editor.call(&"markAllNodesAsDirty")
-	if editor.has_method(&"evalGraph"):
-		editor.call(&"evalGraph")
+	if editor.has_method(&"_run_forced_graph_eval"):
+		editor.call(&"_run_forced_graph_eval")
+	else:
+		if editor.has_method(&"_cancel_regen_run"):
+			editor.call(&"_cancel_regen_run")
+		if editor.has_method(&"markAllNodesAsDirty"):
+			editor.call(&"markAllNodesAsDirty")
+		if editor.has_method(&"evalGraph"):
+			editor.call(&"evalGraph")
 	_debug_full_eval_running = false
+	if _debug_bulk_has_point_stream():
+		super.setupDrawDebug()
+		_align_debug_draw_to_owner()
 
 func _is_currently_analyzed() -> bool:
 	var editor = getEditor()

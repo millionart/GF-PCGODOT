@@ -76,6 +76,10 @@ var eval_cache: Dictionary = {}
 var eval_cache_order: Array = []
 var eval_cache_hits := 0
 var eval_cache_misses := 0
+var eval_cache_last_node_cached := {}
+var eval_cache_last_node_hashes := {}
+var eval_cache_last_node_exec_usec := {}
+var suppress_eval_activity := false
 
 # Activate connections and nodes
 var active_intensity = 0.0
@@ -2558,27 +2562,13 @@ func _input(event: InputEvent):
 			_hotkey_toggle_disabled()
 			get_viewport().set_input_as_handled()
 
-## Returns the FlowNodeBase under the mouse cursor, or null if none.
-func _get_node_under_cursor() -> FlowNodeBase:
-	var mouse_pos = gedit.get_local_mouse_position()
-	# Hit test all graph nodes (reverse order = front-to-back)
-	var children = gedit.get_children()
-	for i in range(children.size() - 1, -1, -1):
-		var child = children[i]
-		if child is FlowNodeBase:
-			var node_rect = Rect2(child.position_offset, child.size)
-			# Account for graph zoom and scroll
-			var graph_pos = (mouse_pos + gedit.scroll_offset) / gedit.zoom
-			if node_rect.has_point(graph_pos):
-				return child
-	return null
-
-## Returns target nodes for hotkey: hovered node first, then selected nodes.
+## Returns selected Flow nodes for node-level hotkeys.
 func _get_hotkey_target_nodes() -> Array:
-	var hovered = _get_node_under_cursor()
-	if hovered:
-		return [hovered]
-	return getSelectedNodes()
+	var nodes := []
+	for node in getSelectedNodes():
+		if node is FlowNodeBase:
+			nodes.append(node)
+	return nodes
 
 func _refresh_inspector_if_showing_nodes(nodes: Array):
 	for node in nodes:
@@ -2616,6 +2606,7 @@ func _finish_debug_state_batch(prev_auto_regen: bool, changed_nodes: Array) -> v
 	if _try_refresh_debug_draw_from_existing_outputs(changed_nodes):
 		return
 	_run_forced_graph_eval()
+	_try_refresh_debug_draw_from_existing_outputs(changed_nodes)
 
 func _on_node_display_state_changed(node: FlowNodeBase) -> void:
 	if node == null or node.settings == null:
@@ -2719,12 +2710,9 @@ func _hotkey_clear_all_debug():
 	_refresh_inspector_if_showing_nodes(changed_nodes)
 
 func _hotkey_toggle_inspect():
-	# Try hovered node first, then fall back to selection
-	var hovered = _get_node_under_cursor()
-	if hovered:
-		analyzeNode(hovered)
-	else:
-		analyzeSelection()
+	if _get_hotkey_target_nodes().is_empty():
+		return
+	analyzeSelection()
 
 func _hotkey_toggle_trace():
 	var nodes = _get_hotkey_target_nodes()
@@ -2805,7 +2793,7 @@ func _find_nearest_connection(screen_pos: Vector2):
 	
 	return best_conn
 
-## Analyze a specific node (used by hover-based hotkeys).
+## Analyze a specific node.
 func analyzeNode(node: FlowNodeBase):
 	if not data_inspector:
 		return
@@ -2830,9 +2818,12 @@ func _run_forced_graph_eval(analyze_node: FlowNodeBase = null) -> void:
 	regen_pending = false
 	if regen_running:
 		_cancel_regen_run()
+	var prev_suppress_eval_activity := suppress_eval_activity
+	suppress_eval_activity = true
 	markAllNodesAsDirty()
 	if analyze_node == null:
 		evalGraph()
+		suppress_eval_activity = prev_suppress_eval_activity
 		return
 	var had_analyze_node := ctx.runtime_params.has("flow_analyze_node")
 	var old_analyze_node = ctx.runtime_params.get("flow_analyze_node")
@@ -2842,6 +2833,7 @@ func _run_forced_graph_eval(analyze_node: FlowNodeBase = null) -> void:
 		ctx.runtime_params["flow_analyze_node"] = old_analyze_node
 	else:
 		ctx.runtime_params.erase("flow_analyze_node")
+	suppress_eval_activity = prev_suppress_eval_activity
 
 func _setup_inline_analyze_panel():
 	var panel := Control.new()
@@ -5199,6 +5191,9 @@ func mcp_get_eval_cache_stats() -> Dictionary:
 		"entries": eval_cache.size(),
 		"hits": eval_cache_hits,
 		"misses": eval_cache_misses,
+		"node_cached": eval_cache_last_node_cached.duplicate(true),
+		"node_hashes": eval_cache_last_node_hashes.duplicate(true),
+		"node_exec_usec": eval_cache_last_node_exec_usec.duplicate(true),
 	}
 
 func _eval_cache_sort_variant_by_string(a, b) -> bool:
@@ -5269,17 +5264,24 @@ func _should_eval_cache_node(node: FlowNodeBase) -> bool:
 	return true
 
 func _eval_cache_key_for_node(node: FlowNodeBase) -> Dictionary:
+	var root_graph_fingerprint := _eval_cache_root_graph_fingerprint(current_resource)
+	var settings_fingerprint := _eval_cache_settings_fingerprint(node.settings)
+	var runtime_fingerprint := _eval_cache_runtime_fingerprint(ctx.runtime_params)
+	var owner_args_fingerprint := _eval_cache_owner_args_fingerprint()
+	var owner_debug_fixture_fingerprint := _eval_cache_owner_debug_fixture_fingerprint()
+	var connection_fingerprint := _eval_cache_connection_fingerprint(node)
+	var inputs_fingerprint := _eval_cache_inputs_fingerprint(node)
 	var fingerprint := [
 		"flow_eval_cache_v1",
-		_eval_cache_root_graph_fingerprint(current_resource),
+		root_graph_fingerprint,
 		String(node.name),
 		String(node.node_template),
-		_eval_cache_settings_fingerprint(node.settings),
-		_eval_cache_runtime_fingerprint(ctx.runtime_params),
-		_eval_cache_owner_args_fingerprint(),
-		_eval_cache_owner_debug_fixture_fingerprint(),
-		_eval_cache_connection_fingerprint(node),
-		_eval_cache_inputs_fingerprint(node),
+		settings_fingerprint,
+		runtime_fingerprint,
+		owner_args_fingerprint,
+		owner_debug_fixture_fingerprint,
+		connection_fingerprint,
+		inputs_fingerprint,
 	]
 	return {
 		"hash": hash(fingerprint),
@@ -5463,7 +5465,7 @@ func _eval_cache_resource_storage_fingerprint(resource: Resource, depth: int = 0
 	if resource == null:
 		return ["Resource", null]
 	if depth > 6:
-		return ["Resource", resource.get_class(), resource.resource_path, resource.get_instance_id()]
+		return ["Resource", resource.get_class(), resource.resource_path]
 	var props := []
 	for prop in resource.get_property_list():
 		var prop_name := String(prop.name)
@@ -5482,7 +5484,6 @@ func _eval_cache_resource_storage_fingerprint(resource: Resource, depth: int = 0
 		"Resource",
 		resource.get_class(),
 		resource.resource_path,
-		resource.get_instance_id() if resource.resource_path == "" else 0,
 		props,
 	]
 
@@ -5569,6 +5570,7 @@ func _finish_evaluated_graph_node(
 	time_node_start: int,
 	cached: bool = false
 ) -> void:
+	eval_cache_last_node_cached[String(node.name)] = cached
 	_update_analyze_output_ready_meta(node)
 	if node.settings.inspect_enabled:
 		_queue_data_inspector_refresh(node)
@@ -5577,6 +5579,7 @@ func _finish_evaluated_graph_node(
 	node.dirty = false
 	var time_node_ends = Time.get_ticks_usec()
 	var exec_usec = time_node_ends - time_node_start
+	eval_cache_last_node_exec_usec[String(node.name)] = exec_usec
 	node.setExecTime(exec_usec)
 	if dump_performance:
 		performance.append( { "name": node.name, "time": exec_usec, "cached": cached } )
@@ -5595,6 +5598,9 @@ func _begin_eval_graph() -> Dictionary:
 	ctx.variables.clear()
 	eval_cache_hits = 0
 	eval_cache_misses = 0
+	eval_cache_last_node_cached.clear()
+	eval_cache_last_node_hashes.clear()
+	eval_cache_last_node_exec_usec.clear()
 	
 	var time_start = Time.get_ticks_usec()
 	
@@ -5606,7 +5612,7 @@ func _begin_eval_graph() -> Dictionary:
 	# unaffected branches respawn instead of disappearing during analyze/debug.
 	markFinalNodesAsDirty()
 	
-	active_intensity = 1.0
+	active_intensity = 0.0 if suppress_eval_activity else 1.0
 	active_nodes.clear()
 	
 	var dirty_nodes := getDirtyNodes()
@@ -5631,16 +5637,19 @@ func _evaluate_graph_node(node: FlowNodeBase, performance: Array) -> void:
 		return
 
 	var time_node_start = Time.get_ticks_usec()
-	active_nodes.append( node )
 
 	node.preExecute( ctx )
 	var can_cache := _should_eval_cache_node(node)
 	var cache_key := {}
 	if can_cache:
 		cache_key = _eval_cache_key_for_node(node)
+		eval_cache_last_node_hashes[String(node.name)] = cache_key.get("hash", null)
 		if _try_restore_eval_cache_entry(node, cache_key):
 			_finish_evaluated_graph_node(node, performance, time_node_start, true)
 			return
+
+	if not suppress_eval_activity:
+		active_nodes.append( node )
 
 	#print( "Evaluating %s" % node.name )
 	if node.settings.disabled:
