@@ -168,41 +168,9 @@ func _populate_frame_properties(frame: GraphFrame):
 	_add_native_property_by_name(prop_box, frame, "tint_color")
 	_add_native_property_by_name(prop_box, frame, "tint_color_enabled")
 
-	var flow_editor: FlowEditor = _find_flow_editor(frame)
-	if flow_editor:
-		var actions_box := VBoxContainer.new()
-		actions_box.add_theme_constant_override("separation", 6)
+	var actions_box := FlowNodeInspectorContextControls.create_frame_actions(frame, _scaled_font_size(11))
+	if actions_box != null:
 		content_vbox.add_child(actions_box)
-		var add_btn := Button.new()
-		add_btn.text = FlowI18n.t("Add Selected Nodes")
-		add_btn.pressed.connect(func():
-			var added: int = flow_editor.add_selected_nodes_to_comment_frame(frame)
-			if flow_editor.has_method("update_status_bar"):
-				if added > 0:
-					flow_editor.update_status_bar(FlowI18n.t("Added %d nodes to comment") % added)
-				else:
-					flow_editor.update_status_bar(FlowI18n.t("No nodes added to comment"))
-		)
-		actions_box.add_child(add_btn)
-		var remove_btn := Button.new()
-		remove_btn.text = FlowI18n.t("Remove Selected Nodes")
-		remove_btn.pressed.connect(func():
-			var removed: int = flow_editor.remove_selected_nodes_from_comment_frame(frame)
-			if flow_editor.has_method("update_status_bar"):
-				if removed > 0:
-					flow_editor.update_status_bar(FlowI18n.t("Removed %d nodes from comment") % removed)
-				else:
-					flow_editor.update_status_bar(FlowI18n.t("No nodes removed from comment"))
-		)
-		actions_box.add_child(remove_btn)
-
-func _find_flow_editor(from_node: Node) -> FlowEditor:
-	var current := from_node
-	while current:
-		if current is FlowEditor:
-			return current as FlowEditor
-		current = current.get_parent()
-	return null
 
 func _populate_generic_node_properties(node: GraphNode):
 	var hide_title := _hide_inspector_title_enabled()
@@ -211,17 +179,6 @@ func _populate_generic_node_properties(node: GraphNode):
 func _populate_node_properties(node: GraphNode, settings: Object):
 	var hide_title := _hide_inspector_title_enabled()
 	_add_header(_node_title(node), node.name, not hide_title)
-
-	# Build attribute selector lookup: prop_name -> port
-	var attr_selector_map := {}
-	if settings.has_method("_get_attribute_selector_props"):
-		for entry in settings._get_attribute_selector_props():
-			attr_selector_map[entry["prop"]] = entry.get("port", 0)
-
-	var variable_selector_props := {}
-	if settings.has_method("_get_variable_selector_props"):
-		for entry in settings._get_variable_selector_props():
-			variable_selector_props[entry["prop"]] = true
 
 	# Type-specific properties container
 	var type_box = VBoxContainer.new()
@@ -244,11 +201,14 @@ func _populate_node_properties(node: GraphNode, settings: Object):
 			continue
 
 		var ctrl: Control
-		if attr_selector_map.has(prop.name):
-			ctrl = _create_attribute_selector(node, settings, prop.name, attr_selector_map[prop.name])
-		elif variable_selector_props.has(prop.name):
-			ctrl = _create_variable_selector(node, settings, prop.name)
-		else:
+		ctrl = FlowNodeInspectorContextControls.create_custom_property_control(
+			node,
+			settings,
+			prop.name,
+			Callable(self, "_on_value_changed"),
+			_scaled_font_size(11)
+		)
+		if ctrl == null:
 			if _add_native_property_editor(type_box, settings, prop):
 				has_custom_props = true
 			continue
@@ -256,11 +216,12 @@ func _populate_node_properties(node: GraphNode, settings: Object):
 			type_box.add_child(_create_row(_localized_property_label(prop.name), ctrl))
 			has_custom_props = true
 
-	if node is FlowNodeBase and node.node_template == "get_variable":
-		type_box.add_child(_create_row(FlowI18n.t("Source"), _create_get_variable_source_button(node, settings)))
-		has_custom_props = true
-	if node is FlowNodeBase and node.node_template == "set_variable":
-		_populate_set_variable_get_references(node as FlowNodeBase, settings, type_box)
+	if FlowNodeInspectorContextControls.add_variable_node_extras(
+		node as FlowNodeBase,
+		settings,
+		type_box,
+		_scaled_font_size(11)
+	):
 		has_custom_props = true
 
 	if not has_custom_props:
@@ -616,212 +577,6 @@ func _add_native_property_by_name(parent: VBoxContainer, object: Object, propert
 		if str(prop.name) == property_name:
 			return _add_native_property_editor(parent, object, prop)
 	return false
-
-## Creates an attribute selector: OptionButton dropdown populated from upstream
-## stream names, with a "(custom...)" option that reveals a text field.
-func _create_attribute_selector(node: GraphNode, settings: Object, prop_name: String, port: int) -> Control:
-	var current_val := str(settings.get(prop_name))
-	var stream_names := _get_input_stream_names(node, port)
-
-	var wrapper = VBoxContainer.new()
-	wrapper.add_theme_constant_override("separation", 4)
-
-	var opt = OptionButton.new()
-	opt.add_theme_font_size_override("font_size", _scaled_font_size(11))
-	opt.custom_minimum_size.x = 100
-
-	# Fallback text input for custom attribute names
-	var le = LineEdit.new()
-	le.text = current_val
-	le.placeholder_text = FlowI18n.t("attribute name...")
-	le.add_theme_font_size_override("font_size", _scaled_font_size(11))
-	var sb := StyleBoxFlat.new()
-	sb.bg_color = Color("111318")
-	sb.set_corner_radius_all(3)
-	sb.content_margin_left = 6
-	sb.content_margin_right = 6
-	le.add_theme_stylebox_override("normal", sb)
-	le.visible = false
-
-	# Populate dropdown
-	var selected_idx := -1
-	var idx := 0
-	for sname in stream_names:
-		opt.add_item(sname, idx)
-		if sname == current_val:
-			selected_idx = idx
-		idx += 1
-
-	# Add separator and custom option
-	var custom_idx := idx
-	opt.add_separator()
-	opt.add_item(FlowI18n.t("(custom...)"), custom_idx + 1)
-
-	if stream_names.is_empty():
-		opt.selected = opt.item_count - 1
-		opt.set_item_text(opt.item_count - 1, FlowI18n.t("(no attributes found)"))
-		opt.disabled = true
-		opt.visible = true
-		le.visible = true
-	elif selected_idx >= 0:
-		opt.selected = selected_idx
-		opt.disabled = false
-		opt.set_item_text(opt.item_count - 1, FlowI18n.t("(custom...)"))
-		opt.visible = true
-		le.visible = false
-	else:
-		opt.selected = opt.item_count - 1
-		opt.disabled = false
-		opt.set_item_text(opt.item_count - 1, FlowI18n.t("(custom...)"))
-		opt.visible = true
-		le.visible = true
-
-	opt.item_selected.connect(func(index):
-		var item_id = opt.get_item_id(index)
-		if item_id == custom_idx + 1:
-			# Switch to custom text input
-			le.visible = true
-			le.grab_focus()
-		else:
-			var chosen = opt.get_item_text(index)
-			le.visible = false
-			le.text = chosen
-			_on_value_changed(settings, prop_name, chosen)
-	)
-
-	le.text_submitted.connect(func(new_text):
-		_on_value_changed(settings, prop_name, new_text)
-	)
-	le.focus_exited.connect(func():
-		if str(settings.get(prop_name)) != le.text:
-			_on_value_changed(settings, prop_name, le.text)
-	)
-
-	wrapper.add_child(opt)
-	wrapper.add_child(le)
-	return wrapper
-
-func _create_variable_selector(node: GraphNode, settings: Object, prop_name: String) -> Control:
-	var current_val := str(settings.get(prop_name))
-	var opt = OptionButton.new()
-	opt.add_theme_font_size_override("font_size", 11)
-	opt.custom_minimum_size.x = 100
-
-	var selected_idx := -1
-	var item_idx := 0
-	var editor_instance = node.getEditor() if node and node.has_method("getEditor") else null
-	var definitions := []
-	if editor_instance and editor_instance.has_method("getSetVariableDefinitions"):
-		definitions = editor_instance.getSetVariableDefinitions()
-
-	for definition in definitions:
-		var variable_name := String(definition.get("name", ""))
-		if variable_name.is_empty():
-			continue
-		opt.add_item(variable_name, item_idx)
-		if variable_name == current_val:
-			selected_idx = item_idx
-		item_idx += 1
-
-	if item_idx == 0:
-		opt.add_item(FlowI18n.t("No variables set"), 0)
-		opt.selected = 0
-		opt.disabled = true
-	else:
-		opt.disabled = false
-		opt.select(selected_idx)
-
-	opt.item_selected.connect(func(index):
-		if opt.disabled:
-			return
-		_on_value_changed(settings, prop_name, opt.get_item_text(index))
-		if node and node.has_method("refreshVariableChoices"):
-			node.refreshVariableChoices()
-	)
-	return opt
-
-func _populate_set_variable_get_references(node: FlowNodeBase, settings: Object, parent: VBoxContainer) -> void:
-	var variable_name := str(settings.get("variable_name")).strip_edges()
-	var section := VBoxContainer.new()
-	section.add_theme_constant_override("separation", 4)
-	parent.add_child(section)
-	var header := Label.new()
-	header.text = FlowI18n.t("Get nodes using this variable")
-	header.add_theme_font_size_override("font_size", 11)
-	header.add_theme_color_override("font_color", Color("a1a1aa"))
-	section.add_child(header)
-	if variable_name.is_empty():
-		var hint := Label.new()
-		hint.text = FlowI18n.t("Set a variable name first")
-		hint.add_theme_font_size_override("font_size", 11)
-		hint.add_theme_color_override("font_color", Color("71717a"))
-		section.add_child(hint)
-		return
-	var editor_instance: FlowEditor = null
-	if node.has_method("getEditor"):
-		editor_instance = node.getEditor() as FlowEditor
-	if editor_instance == null or not editor_instance.has_method("getGetVariableNodes"):
-		return
-	var get_nodes := editor_instance.getGetVariableNodes(variable_name)
-	if get_nodes.is_empty():
-		var empty := Label.new()
-		empty.text = FlowI18n.t("No get nodes use this variable")
-		empty.add_theme_font_size_override("font_size", 11)
-		empty.add_theme_color_override("font_color", Color("71717a"))
-		section.add_child(empty)
-		return
-	for get_node in get_nodes:
-		var row := HBoxContainer.new()
-		row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		section.add_child(row)
-		var btn := Button.new()
-		btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		btn.alignment = HORIZONTAL_ALIGNMENT_LEFT
-		btn.add_theme_font_size_override("font_size", 11)
-		if get_node.has_method("getTitle"):
-			btn.text = String(get_node.call("getTitle"))
-		else:
-			btn.text = String(get_node.name)
-		btn.tooltip_text = FlowI18n.t("Pan to this get node without changing selection")
-		btn.disabled = not editor_instance.has_method("focusGetVariableNode")
-		var target := get_node
-		btn.pressed.connect(func():
-			if editor_instance and editor_instance.has_method("focusGetVariableNode"):
-				editor_instance.focusGetVariableNode(target)
-		)
-		row.add_child(btn)
-
-func _create_get_variable_source_button(node: GraphNode, settings: Object) -> Button:
-	var btn = Button.new()
-	btn.text = FlowI18n.t("Locate Set Variable")
-	btn.add_theme_font_size_override("font_size", 11)
-
-	var editor_instance = node.getEditor() if node and node.has_method("getEditor") else null
-	btn.disabled = editor_instance == null or not editor_instance.has_method("focusSetVariableNode")
-	btn.pressed.connect(func():
-		var variable_name := str(settings.get("variable_name")).strip_edges()
-		if variable_name.is_empty():
-			return
-		editor_instance.focusSetVariableNode(variable_name)
-	)
-	return btn
-
-## Gets the stream names available on a node's input at the given port.
-## Returns the names from the last-evaluated data (requires Regenerate first).
-func _get_input_stream_names(node: GraphNode, port: int) -> PackedStringArray:
-	var names := PackedStringArray()
-	if not node or not "inputs" in node:
-		return names
-	if port < 0 or port >= node.inputs.size():
-		return names
-	var input_data = node.inputs[port]
-	if input_data == null or not input_data is FlowData.Data:
-		return names
-	for sname in input_data.streams.keys():
-		names.append(str(sname))
-	names.sort()
-	return names
-
 
 func _on_value_changed(obj: Object, prop_name: String, new_val):
 	obj.set(prop_name, new_val)

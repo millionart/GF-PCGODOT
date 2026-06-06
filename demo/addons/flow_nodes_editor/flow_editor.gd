@@ -2172,7 +2172,7 @@ func _ensure_inspector() -> void:
 	_apply_internal_inspector_mode(true)
 	gedit.add_theme_color_override("activity", Color(1, 0.2, 0.2, 1))
 	if not inspector.property_edited.is_connected(_on_flow_inspector_property_edited):
-		inspector.property_edited.connect(_on_flow_inspector_property_edited)
+		inspector.property_edited.connect(_on_flow_inspector_property_edited, CONNECT_DEFERRED)
 	if not gedit.node_deselected.is_connected(_on_graph_edit_node_deselected):
 		gedit.node_deselected.connect(_on_graph_edit_node_deselected)
 
@@ -2223,7 +2223,7 @@ func _connect_native_inspector() -> void:
 	if native_inspector == null:
 		return
 	if not native_inspector.property_edited.is_connected(_on_native_inspector_property_edited):
-		native_inspector.property_edited.connect(_on_native_inspector_property_edited)
+		native_inspector.property_edited.connect(_on_native_inspector_property_edited, CONNECT_DEFERRED)
 
 func _disconnect_native_inspector() -> void:
 	var native_inspector := EditorInterface.get_inspector()
@@ -2250,6 +2250,7 @@ func _inspect_graph_element(node: Node) -> void:
 			target = current_resource
 		elif flow_node.settings != null:
 			target = flow_node.settings
+			FlowNodeInspectorContextControls.set_node_context(flow_node.settings, flow_node)
 	_ensure_inspector()
 	if inspector != null:
 		inspector.edit(node)
@@ -5027,30 +5028,40 @@ func panToGraphNode(node: GraphNode, select_node: bool = false) -> bool:
 	if node == null or not is_instance_valid(node) or gedit == null:
 		return false
 	if select_node:
-		for selected_node in getSelectedNodes():
-			selected_node.selected = false
-		for selected_frame in getSelectedFrames():
-			selected_frame.selected = false
-		node.selected = true
-		_inspect_graph_element(node)
+		_select_graph_node(node)
 	node.visible = true
 	var target_center := node.position_offset + node.size * 0.5
 	gedit.scroll_offset = target_center * gedit.zoom - gedit.size * 0.5
 	return true
+
+func focusGraphNode(node: GraphNode, select_node: bool = true, flash_node: bool = true) -> bool:
+	if not panToGraphNode(node, select_node):
+		return false
+	if flash_node:
+		_flash_graph_node_white_twice(node)
+	return true
+
+func _select_graph_node(node: GraphNode) -> void:
+	for selected_node in getSelectedNodes():
+		selected_node.selected = false
+	for selected_frame in getSelectedFrames():
+		selected_frame.selected = false
+	node.selected = true
+	_inspect_graph_element(node)
 
 func focusSetVariableNode(variable_name: String) -> bool:
 	var node := findSetVariableNode(variable_name)
 	if node == null:
 		update_status_bar("Set variable not found: %s" % variable_name)
 		return false
-	panToGraphNode(node, true)
+	focusGraphNode(node, true, true)
 	update_status_bar("Located set variable: %s" % variable_name)
 	return true
 
 func focusGetVariableNode(get_node: GraphNode) -> bool:
 	if get_node == null or not is_instance_valid(get_node):
 		return false
-	panToGraphNode(get_node, false)
+	focusGraphNode(get_node, true, true)
 	var label := get_node.name
 	if get_node is FlowNodeBase and get_node.has_method("getTitle"):
 		label = String(get_node.call("getTitle"))
