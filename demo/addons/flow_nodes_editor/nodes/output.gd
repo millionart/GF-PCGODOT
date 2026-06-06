@@ -3,11 +3,12 @@ extends FlowNodeBase
 
 func _init():
 	meta_node = {
-		"title" : "Output",
+		"title" : "Output Node",
 		"settings" : OutputNodeSettings,
 		"ins" : [{ "label" : "In", "data_type" : FlowData.DataType.Float }],
 		"outs" : [],
 		"tooltip" : "Exposes an output parameter of the Subgraph",
+		"category" : "Input Output",
 		"auto_register" : true,
 		"hide_outputs" : true
 	}

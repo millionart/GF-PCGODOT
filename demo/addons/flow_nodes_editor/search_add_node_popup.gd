@@ -231,7 +231,8 @@ func setup(p_node_types: Dictionary, p_inputs: Array, p_outputs: Array, p_has_se
 	# 3. Node items
 	var cat_map = {
 		"Black Lantern": ["bl_style_lab_source", "bl_building_mass", "bl_zone_carver", "bl_room_splitter", "bl_decorator_master", "bl_tactical_decorator", "bl_floor_data_to_points", "bl_floor_data_contract_points", "bl_validate_floor_data", "bl_room_style_template", "bl_style_context_source", "bl_style_context_points", "bl_style_anchor_points", "bl_sync_grid_cell", "bl_points_to_style_spec", "bl_style_spec_to_points", "bl_style_spec_merge", "bl_style_metadata_spec", "bl_smart_prop_scatter", "bl_points_to_floor_data_props"],
-		"Control Flow": ["input", "output", "subgraph", "loop", "branch", "select", "select_multi", "switch", "get_loop_index"],
+		"Input Output": ["input", "output"],
+		"Control Flow": ["subgraph", "loop", "branch", "select", "select_multi", "switch", "get_loop_index"],
 		"Debug": ["debug", "print_string", "sanity_check"],
 		"Density": ["curve_remap_density", "density_remap", "distance_to_density"],
 		"Filter": ["filter", "filter_data_by_tag", "filter_data_by_attribute", "filter_data_by_type", "attribute_filter_range", "point_filter_range", "self_pruning", "substract", "difference", "intersection", "union"],

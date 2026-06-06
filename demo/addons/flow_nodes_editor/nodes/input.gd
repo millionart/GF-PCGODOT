@@ -3,11 +3,12 @@ extends FlowNodeBase
 
 func _init():
 	meta_node = {
-		"title" : "Input",
+		"title" : "Input Node",
 		"settings" : InputNodeSettings,
 		"ins" : [],
 		"outs" : [{ "label" : "Out" }],
 		"tooltip" : "Exposes an input of the Flow Graph Node into the Graph",
+		"category" : "Input Output",
 		"auto_register" : true,
 		"hide_inputs" : true
 	}

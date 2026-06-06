@@ -1612,6 +1612,17 @@ func _normalize_node_script_path(file_name: String, base_directory: String = dir
 		normalized = "%s/%s" % [base_directory, normalized]
 	return normalized
 
+func _apply_input_output_node_metadata_defaults(node_type_name: String, metadata: Dictionary) -> void:
+	if node_type_name == "input":
+		metadata.title = "Input Node"
+		metadata.category = "Input Output"
+	elif node_type_name == "output":
+		metadata.title = "Output Node"
+		metadata.category = "Input Output"
+	elif node_type_name.begins_with("input_") or node_type_name.begins_with("output_"):
+		metadata.auto_register = false
+
+
 func registerNodeType(node_type_name: String, file_name: String, base_directory: String = directory_path, force_reload: bool = false):
 	var full_res_path := _normalize_node_script_path(file_name, base_directory)
 	if full_res_path.is_empty():
@@ -1659,6 +1670,7 @@ func registerNodeType(node_type_name: String, file_name: String, base_directory:
 	meta.factory = loaded_class
 	meta.full_res_path = full_res_path
 	meta.last_modified_time = current_mtime
+	_apply_input_output_node_metadata_defaults(node_type_name, meta)
 	#print( "Registering node type %s" % node_type_name )
 	if node_types.has(node_type_name):
 		var existing_path := String(node_types[node_type_name].get("full_res_path", ""))
@@ -1896,6 +1908,7 @@ func populatePopupMenu() -> PopupMenu:
 	# Categorized node submenus
 	var cat_map = {
 		"Black Lantern": ["bl_style_lab_source", "bl_building_mass", "bl_zone_carver", "bl_room_splitter", "bl_decorator_master", "bl_tactical_decorator", "bl_floor_data_to_points", "bl_floor_data_contract_points", "bl_validate_floor_data", "bl_room_style_template", "bl_style_context_source", "bl_style_context_points", "bl_style_anchor_points", "bl_sync_grid_cell", "bl_points_to_style_spec", "bl_style_spec_to_points", "bl_style_spec_merge", "bl_style_metadata_spec", "bl_smart_prop_scatter", "bl_points_to_floor_data_props"],
+		"Input Output": ["input", "output"],
 		"Attributes": ["add_attribute", "attribute_rename", "remove_attribute", "attribute_filter_range", "point_filter_range", "mutate_seed", "add_tags", "delete_tags", "replace_tags", "point_to_attribute_set", "attribute_set_to_point", "load_data_table", "data_table_row_to_attribute_set", "load_pcg_data_asset"],
 		"Math": ["math_op", "remap", "expression", "reduce", "boolean"],
 		"Splines": ["create_spline", "sample_spline", "distance", "scan_splines", "clip_points_by_polygon", "clip_paths", "polygon_operation", "split_splines", "create_surface_from_spline", "create_surface_from_polygon"],
@@ -1903,7 +1916,7 @@ func populatePopupMenu() -> PopupMenu:
 		"Spatial": ["substract", "difference", "intersection", "union", "point_neighborhood", "ray_cast", "physics_overlap_query", "physics_shape_sweep", "navigation_region_sampler"],
 		"Assets": ["assets", "spawn_meshes", "spawn_scenes", "apply_on_actor", "points_from_imported_scene", "load_alembic_file", "load_pcg_data_asset"],
 		"Generators": ["grid", "grid_fill_bounds", "grid_connect_points", "grid_boundary", "noise", "relax", "self_pruning", "dungeon_generator", "volume_sampler"],
-		"Utility": ["input", "output", "subgraph", "loop", "debug", "sort", "merge", "merge_points", "partition", "filter", "copy", "copy_points", "point_offsets", "transform_points", "points_from_scene", "point_from_player_pawn", "points_from_tilemap", "points_from_gridmap", "size", "get_points_count", "get_data_count", "get_entries_count", "get_loop_index"]
+		"Utility": ["subgraph", "loop", "debug", "sort", "merge", "merge_points", "partition", "filter", "copy", "copy_points", "point_offsets", "transform_points", "points_from_scene", "point_from_player_pawn", "points_from_tilemap", "points_from_gridmap", "size", "get_points_count", "get_data_count", "get_entries_count", "get_loop_index"]
 	}
 	
 	# Helper to find category of a node template
