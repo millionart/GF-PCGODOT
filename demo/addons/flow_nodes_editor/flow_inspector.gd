@@ -168,10 +168,6 @@ func _populate_frame_properties(frame: GraphFrame):
 	_add_native_property_by_name(prop_box, frame, "tint_color")
 	_add_native_property_by_name(prop_box, frame, "tint_color_enabled")
 
-	var actions_box := FlowNodeInspectorContextControls.create_frame_actions(frame, _scaled_font_size(11))
-	if actions_box != null:
-		content_vbox.add_child(actions_box)
-
 func _populate_generic_node_properties(node: GraphNode):
 	var hide_title := _hide_inspector_title_enabled()
 	_add_header(_node_title(node), node.name, not hide_title)

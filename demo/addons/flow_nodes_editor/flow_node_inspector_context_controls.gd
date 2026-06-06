@@ -61,41 +61,6 @@ static func add_variable_node_extras(
 	return added
 
 
-static func create_frame_actions(frame: GraphFrame, font_size: int = 11) -> Control:
-	var flow_editor := _find_flow_editor(frame)
-	if flow_editor == null:
-		return null
-	var actions_box := VBoxContainer.new()
-	actions_box.add_theme_constant_override("separation", 6)
-
-	var add_button := Button.new()
-	add_button.text = FlowI18n.t("Add Selected Nodes")
-	add_button.add_theme_font_size_override("font_size", font_size)
-	add_button.pressed.connect(func():
-		var added: int = flow_editor.add_selected_nodes_to_comment_frame(frame)
-		if flow_editor.has_method("update_status_bar"):
-			if added > 0:
-				flow_editor.update_status_bar(FlowI18n.t("Added %d nodes to comment") % added)
-			else:
-				flow_editor.update_status_bar(FlowI18n.t("No nodes added to comment"))
-	, CONNECT_DEFERRED)
-	actions_box.add_child(add_button)
-
-	var remove_button := Button.new()
-	remove_button.text = FlowI18n.t("Remove Selected Nodes")
-	remove_button.add_theme_font_size_override("font_size", font_size)
-	remove_button.pressed.connect(func():
-		var removed: int = flow_editor.remove_selected_nodes_from_comment_frame(frame)
-		if flow_editor.has_method("update_status_bar"):
-			if removed > 0:
-				flow_editor.update_status_bar(FlowI18n.t("Removed %d nodes from comment") % removed)
-			else:
-				flow_editor.update_status_bar(FlowI18n.t("No nodes removed from comment"))
-	, CONNECT_DEFERRED)
-	actions_box.add_child(remove_button)
-	return actions_box
-
-
 static func create_row(label_text: String, control: Control, font_size: int = 11) -> HBoxContainer:
 	var row := HBoxContainer.new()
 	row.alignment = BoxContainer.ALIGNMENT_BEGIN
@@ -375,12 +340,3 @@ static func _make_hint_label(text: String, font_size: int) -> Label:
 	label.add_theme_font_size_override("font_size", font_size)
 	label.add_theme_color_override("font_color", Color("71717a"))
 	return label
-
-
-static func _find_flow_editor(from_node: Node) -> FlowEditor:
-	var current := from_node
-	while current:
-		if current is FlowEditor:
-			return current as FlowEditor
-		current = current.get_parent()
-	return null

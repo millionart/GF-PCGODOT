@@ -321,6 +321,8 @@ static func create_nodes_from_dict( dict, editor : Control, paste_offset = null)
 		frame.tint_color = _parse_color( frame_data.tint_color )
 		frame.tint_color_enabled = true
 		editor.gedit.add_child(frame)
+		if editor.has_method("_setup_comment_frame"):
+			editor._setup_comment_frame(frame)
 		for old_name in frame_data.attached:
 			var new_name = old_to_new_names.get( old_name, null )
 			if _attach_graph_node_to_frame_if_available(editor, new_name, frame.name, attached_names):
@@ -415,6 +417,8 @@ static func create_nodes_from_dict_with_progress(dict, editor: Control, paste_of
 		frame.tint_color = _parse_color(frame_data.tint_color)
 		frame.tint_color_enabled = true
 		editor.gedit.add_child(frame)
+		if editor.has_method("_setup_comment_frame"):
+			editor._setup_comment_frame(frame)
 		for old_name in frame_data.attached:
 			var new_name = old_to_new_names.get(old_name, null)
 			if _attach_graph_node_to_frame_if_available(editor, new_name, frame.name, attached_names):

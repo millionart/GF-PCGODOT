@@ -103,9 +103,13 @@ var popup_menu_outputs : PopupMenu
 var popup_on_over_input = null
 const IDM_PROMOTE_TO_PARAMETER : int = 100
 const IDM_COLLAPSE_TO_SUBGRAPH : int = 200
-const IDM_FRAME_ADD_SELECTED_NODES : int = 300
-const IDM_FRAME_REMOVE_SELECTED_NODES : int = 301
+const IDM_NODE_DELETE : int = 300
+const IDM_NODE_CUT : int = 301
+const IDM_NODE_COPY : int = 302
+const IDM_NODE_DUPLICATE : int = 303
 const RIGHT_DRAG_PAN_THRESHOLD := 4.0
+const COMMENT_FRAME_CONTROLS_HEIGHT := 28.0
+const COMMENT_FRAME_CONTROLS_MARGIN := 8.0
 const SAVE_DEBOUNCE_SECONDS := 0.35
 const SAVE_FEEDBACK_HOLD_MSEC := 2000
 const AUTO_REGEN_FRAME_BUDGET_USEC := 5000
@@ -1881,10 +1885,6 @@ func populatePopupMenu() -> PopupMenu:
 
 	# A submenu to invoke the inputs declared in the pcg
 	if required_input_type == FlowData.DataType.Invalid:
-		if getSelectedNodes().size() > 0:
-			pm.add_item( FlowI18n.t("Collapse Selected to Subgraph"), IDM_COLLAPSE_TO_SUBGRAPH )
-			pm.add_separator("", -1)
-			
 		if popup_menu_inputs:
 			popup_menu_inputs.queue_free()
 		popup_menu_inputs = PopupMenu.new()
@@ -3587,7 +3587,7 @@ func _handle_right_mouse_pan(event: InputEvent) -> bool:
 			if not was_drag:
 				suppress_next_popup_request = true
 				call_deferred("_clear_suppressed_popup_request")
-				_open_graph_context_menu(evt_mouse.position)
+				_open_context_menu_for_right_click(evt_mouse.position)
 			return true
 		return false
 
@@ -3780,6 +3780,7 @@ func addComment():
 	frame.tint_color = Color.DARK_SLATE_BLUE
 	frame.tint_color_enabled = true
 	gedit.add_child(frame)
+	_setup_comment_frame(frame)
 	_mark_status_counts_dirty()
 	
 	for node in nodes:
@@ -3796,13 +3797,102 @@ func get_comment_frame_at_graph_position(graph_position: Vector2) -> GraphFrame:
 			return frame
 	return null
 
-func _get_target_comment_frame(at_local_position: Vector2) -> GraphFrame:
-	var selected_frames := getSelectedFrames()
-	if selected_frames.size() == 1:
-		return selected_frames[0]
-	if selected_frames.is_empty():
-		return get_comment_frame_at_graph_position(localToGraphCoords(at_local_position))
-	return get_comment_frame_at_graph_position(localToGraphCoords(at_local_position))
+func _setup_comment_frame(frame: GraphFrame) -> void:
+	if frame == null or not is_instance_valid(frame):
+		return
+	_ensure_comment_frame_controls(frame)
+
+func _ensure_comment_frame_controls(frame: GraphFrame) -> void:
+	var controls := frame.get_node_or_null("FlowCommentControls") as HBoxContainer
+	if controls != null and not bool(controls.get_meta("flow_comment_controls_internal", false)):
+		frame.remove_child(controls)
+		controls.queue_free()
+		controls = null
+	if controls != null:
+		controls.visible = true
+		_position_comment_frame_controls(frame)
+		return
+	controls = HBoxContainer.new()
+	controls.name = "FlowCommentControls"
+	controls.set_meta("flow_comment_controls_internal", true)
+	controls.mouse_filter = Control.MOUSE_FILTER_PASS
+	controls.add_theme_constant_override("separation", 2)
+	controls.clip_contents = true
+	frame.add_child(controls, false, Node.INTERNAL_MODE_FRONT)
+	controls.add_child(_make_comment_frame_button(
+		"AddSelectedNodes",
+		"Add",
+		"Add Selected Nodes",
+		_on_comment_frame_add_selected_pressed.bind(frame)
+	))
+	controls.add_child(_make_comment_frame_button(
+		"RemoveSelectedNodes",
+		"Remove",
+		"Remove Selected Nodes",
+		_on_comment_frame_remove_selected_pressed.bind(frame)
+	))
+	_position_comment_frame_controls(frame)
+	if not bool(frame.get_meta("flow_comment_controls_resize_connected", false)):
+		frame.resized.connect(_on_comment_frame_resized.bind(frame), CONNECT_DEFERRED)
+		frame.set_meta("flow_comment_controls_resize_connected", true)
+
+func _on_comment_frame_resized(frame: GraphFrame) -> void:
+	_position_comment_frame_controls(frame)
+
+func _position_comment_frame_controls(frame: GraphFrame) -> void:
+	if frame == null or not is_instance_valid(frame):
+		return
+	var controls := frame.get_node_or_null("FlowCommentControls") as HBoxContainer
+	if controls == null:
+		return
+	var editor_scale := EditorInterface.get_editor_scale() if Engine.is_editor_hint() else 1.0
+	var margin := COMMENT_FRAME_CONTROLS_MARGIN * editor_scale
+	var row_height := COMMENT_FRAME_CONTROLS_HEIGHT * editor_scale
+	var titlebar_min_height := 0.0
+	var titlebar := frame.get_titlebar_hbox()
+	if titlebar != null:
+		titlebar_min_height = titlebar.get_combined_minimum_size().y
+	controls.custom_minimum_size = Vector2(0, row_height)
+	controls.size = Vector2(maxf(frame.size.x - margin * 2.0, 0.0), row_height)
+	controls.position = Vector2(margin, maxf(titlebar_min_height, frame.size.y - row_height - margin))
+
+func _make_comment_frame_button(
+	button_name: String,
+	icon_name: String,
+	tooltip: String,
+	callback: Callable
+) -> Button:
+	var editor_scale := EditorInterface.get_editor_scale() if Engine.is_editor_hint() else 1.0
+	var button := Button.new()
+	button.name = button_name
+	button.text = ""
+	button.tooltip_text = FlowI18n.t(tooltip)
+	button.theme_type_variation = "FlatButton"
+	button.focus_mode = Control.FOCUS_NONE
+	button.custom_minimum_size = Vector2(24, 24) * editor_scale
+	button.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	button.icon_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	button.expand_icon = false
+	if Engine.is_editor_hint():
+		var editor_theme := EditorInterface.get_editor_theme()
+		if editor_theme != null and editor_theme.has_icon(icon_name, "EditorIcons"):
+			button.icon = editor_theme.get_icon(icon_name, "EditorIcons")
+	button.pressed.connect(callback, CONNECT_DEFERRED)
+	return button
+
+func _on_comment_frame_add_selected_pressed(frame: GraphFrame) -> void:
+	var added := add_selected_nodes_to_comment_frame(frame)
+	if added > 0:
+		update_status_bar(FlowI18n.t("Added %d nodes to comment") % added)
+	else:
+		update_status_bar(FlowI18n.t("No nodes added to comment"))
+
+func _on_comment_frame_remove_selected_pressed(frame: GraphFrame) -> void:
+	var removed := remove_selected_nodes_from_comment_frame(frame)
+	if removed > 0:
+		update_status_bar(FlowI18n.t("Removed %d nodes from comment") % removed)
+	else:
+		update_status_bar(FlowI18n.t("No nodes removed from comment"))
 
 func add_selected_nodes_to_comment_frame(frame: GraphFrame) -> int:
 	if frame == null:
@@ -3854,23 +3944,6 @@ func _fit_comment_frame_to_attached_nodes(frame: GraphFrame) -> void:
 	rect.size += comment_padding * 2
 	frame.position_offset = rect.position
 	frame.size = rect.size
-
-func _on_frame_context_menu_pressed(menu_id: int, frame: GraphFrame) -> void:
-	if frame == null:
-		return
-	match menu_id:
-		IDM_FRAME_ADD_SELECTED_NODES:
-			var added := add_selected_nodes_to_comment_frame(frame)
-			if added > 0:
-				update_status_bar(FlowI18n.t("Added %d nodes to comment") % added)
-			else:
-				update_status_bar(FlowI18n.t("No nodes added to comment"))
-		IDM_FRAME_REMOVE_SELECTED_NODES:
-			var removed := remove_selected_nodes_from_comment_frame(frame)
-			if removed > 0:
-				update_status_bar(FlowI18n.t("Removed %d nodes from comment") % removed)
-			else:
-				update_status_bar(FlowI18n.t("No nodes removed from comment"))
 
 func _on_graph_edit_node_selected(node):
 	prepare_graph_for_interaction()
@@ -4014,7 +4087,86 @@ func _on_graph_edit_popup_request(at_position):
 	if suppress_next_popup_request:
 		suppress_next_popup_request = false
 		return
+	_open_context_menu_for_right_click(at_position)
+
+func _open_context_menu_for_right_click(at_position: Vector2) -> void:
+	local_drop_position = at_position
+	var graph_element := _get_graph_element_at_local_position(at_position)
+	if graph_element != null:
+		_select_graph_element_for_context_menu(graph_element)
+		if graph_element is GraphFrame:
+			return
+		_open_node_context_menu(at_position)
+		return
 	_open_graph_context_menu(at_position)
+
+func _get_graph_element_at_local_position(at_position: Vector2) -> Node:
+	var graph_position: Vector2 = localToGraphCoords(at_position)
+	var children := gedit.get_children()
+	for i in range(children.size() - 1, -1, -1):
+		var node := children[i] as GraphNode
+		if node == null or not node.visible:
+			continue
+		if Rect2(node.position_offset, node.size).has_point(graph_position):
+			return node
+	for i in range(children.size() - 1, -1, -1):
+		var frame := children[i] as GraphFrame
+		if frame == null or not frame.visible or _is_retired_graph_frame(frame):
+			continue
+		if Rect2(frame.position_offset, frame.size).has_point(graph_position):
+			return frame
+	return null
+
+func _select_graph_element_for_context_menu(graph_element: Node) -> void:
+	if graph_element == null:
+		return
+	if (graph_element is GraphNode or graph_element is GraphFrame) and not graph_element.selected:
+		_clear_graph_selection()
+		graph_element.selected = true
+	_inspect_graph_element(graph_element)
+
+func _open_node_context_menu(at_position: Vector2) -> void:
+	var node_menu := _create_node_context_menu()
+	add_child(node_menu)
+	node_menu.id_pressed.connect(_on_node_context_menu_id_pressed)
+	node_menu.popup_hide.connect(func():
+		node_menu.queue_free()
+	)
+	node_menu.position = get_screen_position() + at_position + Vector2(20, 20)
+	node_menu.popup()
+
+func _create_node_context_menu() -> PopupMenu:
+	var node_menu := PopupMenu.new()
+	node_menu.name = "NodeContextMenu"
+	_populate_node_context_menu(node_menu)
+	return node_menu
+
+func _populate_node_context_menu(node_menu: PopupMenu) -> void:
+	var collapse_idx := node_menu.get_item_count()
+	node_menu.add_item(FlowI18n.t("Collapse into Subgraph"), IDM_COLLAPSE_TO_SUBGRAPH)
+	node_menu.set_item_tooltip(
+		collapse_idx,
+		FlowI18n.t("Collapse selected nodes into a separate PCGGraph asset.")
+	)
+	node_menu.set_item_disabled(collapse_idx, getSelectedNodes().is_empty())
+	node_menu.add_separator("", -1)
+	node_menu.add_item(FlowI18n.t("Delete"), IDM_NODE_DELETE)
+	node_menu.add_item(FlowI18n.t("Cut"), IDM_NODE_CUT)
+	node_menu.add_item(FlowI18n.t("Copy"), IDM_NODE_COPY)
+	node_menu.add_item(FlowI18n.t("Duplicate"), IDM_NODE_DUPLICATE)
+
+func _on_node_context_menu_id_pressed(id: int) -> void:
+	match id:
+		IDM_COLLAPSE_TO_SUBGRAPH:
+			collapse_selected_to_subgraph()
+		IDM_NODE_DELETE:
+			deleteSelectedNodes()
+		IDM_NODE_CUT:
+			_on_graph_edit_cut_nodes_request()
+		IDM_NODE_COPY:
+			_on_graph_edit_copy_nodes_request()
+		IDM_NODE_DUPLICATE:
+			_on_graph_edit_duplicate_nodes_request()
 
 func _open_graph_context_menu(at_position: Vector2):
 	local_drop_position = at_position
@@ -4032,18 +4184,6 @@ func _open_graph_context_menu(at_position: Vector2):
 		#print( "Show popup associated to %s.%s" % [ node.name, popup_on_over_input.getInLabel().text ] )
 		return
 
-	var target_frame := _get_target_comment_frame(at_position)
-	if target_frame:
-		var frame_menu := PopupMenu.new()
-		add_child(frame_menu)
-		frame_menu.name = "FramePopupMenu"
-		frame_menu.add_item(FlowI18n.t("Add Selected Nodes"), IDM_FRAME_ADD_SELECTED_NODES)
-		frame_menu.add_item(FlowI18n.t("Remove Selected Nodes"), IDM_FRAME_REMOVE_SELECTED_NODES)
-		frame_menu.id_pressed.connect(_on_frame_context_menu_pressed.bind(target_frame))
-		frame_menu.position = get_screen_position() + at_position + Vector2(20, 20)
-		frame_menu.popup()
-		return
-	
 	var required_input_type := FlowData.DataType.Invalid
 	var required_output_type := FlowData.DataType.Invalid
 	if auto_connect_from_node:
@@ -4522,6 +4662,7 @@ func resync_comment_frames_from_resource() -> int:
 		frame.tint_color = FlowNodeIO._parse_color(frame_data.get("tint_color", Color(1, 1, 1, 0.12)))
 		frame.tint_color_enabled = true
 		gedit.add_child(frame)
+		_setup_comment_frame(frame)
 		for old_name in frame_data.get("attached", []):
 			var attach_name := StringName(old_name)
 			_attach_graph_node_to_frame_if_available(attach_name, frame.name, attached_names)

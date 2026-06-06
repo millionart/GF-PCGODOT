@@ -7,8 +7,6 @@ signal action_selected(action_id: int)
 signal input_selected(input_idx: int)
 signal output_selected(output_idx: int)
 
-const IDM_COLLAPSE_TO_SUBGRAPH = 200
-
 # Theme colors
 const ACCENT_COLOR = Color("22d3ee") # Cyan accent
 const HOVER_BG_COLOR = Color("2a3142")
@@ -24,7 +22,6 @@ const POPUP_KEEPALIVE_DISTANCE = 160.0
 var node_types = {}
 var inputs_list = []
 var outputs_list = []
-var has_selected_nodes = false
 var search_query = ""
 var current_category: String = ""
 
@@ -191,24 +188,14 @@ func _ready():
 		rebuild_list()
 	)
 
-func setup(p_node_types: Dictionary, p_inputs: Array, p_outputs: Array, p_has_selected_nodes: bool, p_req_in: int = FlowData.DataType.Invalid, p_req_out: int = FlowData.DataType.Invalid):
+func setup(p_node_types: Dictionary, p_inputs: Array, p_outputs: Array, _p_has_selected_nodes: bool, p_req_in: int = FlowData.DataType.Invalid, p_req_out: int = FlowData.DataType.Invalid):
 	node_types = p_node_types
 	inputs_list = p_inputs
 	outputs_list = p_outputs
-	has_selected_nodes = p_has_selected_nodes
 	
 	# Cache all items
 	all_items.clear()
 	
-	# 1. Action items (only when no drag connecting is happening)
-	if has_selected_nodes and p_req_in == FlowData.DataType.Invalid and p_req_out == FlowData.DataType.Invalid:
-		all_items.append({
-			"type": "action",
-			"key": IDM_COLLAPSE_TO_SUBGRAPH,
-			"label": "Collapse Selected to Subgraph",
-			"category": "Actions"
-		})
-		
 	# 2. Input/Output items (only when no drag connecting is happening)
 	if p_req_in == FlowData.DataType.Invalid and p_req_out == FlowData.DataType.Invalid:
 		for idx in range(inputs_list.size()):

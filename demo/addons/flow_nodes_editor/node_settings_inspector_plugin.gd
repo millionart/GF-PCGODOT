@@ -54,13 +54,6 @@ func _parse_property(object, type, name, hint_type, hint_string, usage_flags, wi
 	return false
 
 func _parse_end(object: Object) -> void:
-	var frame := object as GraphFrame
-	if frame != null:
-		var actions := FlowNodeInspectorContextControls.create_frame_actions(frame)
-		if actions != null:
-			add_custom_control(actions)
-		return
-
 	var settings := object as NodeSettings
 	if settings == null:
 		return
