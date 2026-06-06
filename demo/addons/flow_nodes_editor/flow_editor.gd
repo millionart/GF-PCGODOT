@@ -2595,7 +2595,7 @@ func _set_node_debug_enabled(
 	flow_node.settings.debug_enabled = debug_enabled
 	if flow_node.has_method("_sync_editor_state_snapshot"):
 		flow_node.call("_sync_editor_state_snapshot")
-	flow_node.refreshFromSettings()
+	flow_node.refreshEditorDisplayStateFromSettings()
 	changed_nodes.append(flow_node)
 	names.append(flow_node.settings.title)
 
@@ -2613,7 +2613,7 @@ func _on_node_display_state_changed(node: FlowNodeBase) -> void:
 		return
 	if node.has_method("_sync_editor_state_snapshot"):
 		node.call("_sync_editor_state_snapshot")
-	node.refreshFromSettings()
+	node.refreshEditorDisplayStateFromSettings()
 	if node.settings.debug_enabled:
 		var prev_auto_regen := _begin_debug_state_batch()
 		_finish_debug_state_batch(prev_auto_regen, [node])
@@ -2645,7 +2645,7 @@ func _node_has_debug_drawable_output(node: FlowNodeBase) -> bool:
 func _show_analyze_panel_for_node(node: FlowNodeBase) -> void:
 	data_inspector.setNode(null)
 	data_inspector.setNode(node)
-	node.refreshFromSettings()
+	node.refreshEditorDisplayStateFromSettings()
 	_set_analyze_panel_visible(true)
 	current_analyzed_node = node
 

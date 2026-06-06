@@ -42,7 +42,7 @@ func setNode( new_node : FlowNodeBase ):
 			node.settings.inspect_enabled = false
 			if node.has_method("_sync_editor_state_snapshot"):
 				node.call("_sync_editor_state_snapshot")
-			node.refreshFromSettings()
+			node.refreshEditorDisplayStateFromSettings()
 		
 	if node != new_node and new_node:
 		if new_node.has_method("getLocalizedTitle"):
@@ -52,6 +52,7 @@ func setNode( new_node : FlowNodeBase ):
 		new_node.settings.inspect_enabled = true
 		if new_node.has_method("_sync_editor_state_snapshot"):
 			new_node.call("_sync_editor_state_snapshot")
+		new_node.refreshEditorDisplayStateFromSettings()
 		current_bulk_index = new_node.settings.debug_bulk
 		node = new_node
 		node.setupDrawDebug()
