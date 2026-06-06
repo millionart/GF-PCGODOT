@@ -574,24 +574,24 @@ static func editorDisplayName(property_name: String) -> String:
 static func getColorForFlowDataType( data_type : FlowData.DataType ) -> Color:
 	match( data_type ):
 		FlowData.DataType.Bool:
-			return Color("ef4444")
+			return Color("c21f1f")
 		FlowData.DataType.Int:
-			return Color("c8c8c8")
+			return Color("2dd4a3")
 		FlowData.DataType.Float:
-			return Color("c8c8c8")
+			return Color("67e34d")
 		FlowData.DataType.Vector:
-			return Color("a855f7")
+			return Color("ffd23f")
 		FlowData.DataType.Color:
 			return Color("eab308")
 		FlowData.DataType.String:
-			return Color("3b82f6")
+			return Color("f12cff")
 		FlowData.DataType.Resource:
-			return Color("22c55e")
+			return Color("1685ff")
 		FlowData.DataType.NodeMesh:
-			return Color("22c55e")
+			return Color("1685ff")
 		FlowData.DataType.NodePath:
 			return Color("14b8a6")
-	return Color("22d3ee") # Default cyan flow color
+	return Color("7a8494")
 
 static func getGdScriptTypeForFlowDataType( data_type : FlowData.DataType ) -> int:
 	match( data_type ):

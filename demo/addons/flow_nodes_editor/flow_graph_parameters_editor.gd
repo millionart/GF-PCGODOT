@@ -357,12 +357,12 @@ func _property_info(object: Object, property_name: String) -> Dictionary:
 
 func _make_type_swatch_icon(data_type: int) -> Texture2D:
 	var image := Image.create(12, 4, false, Image.FORMAT_RGBA8)
-	image.fill(_ue_type_color(data_type))
+	image.fill(FlowNodeBase.getColorForFlowDataType(data_type))
 	return ImageTexture.create_from_image(image)
 
 
 func _style_type_button(type_button: OptionButton, data_type: int) -> void:
-	var type_color := _ue_type_color(data_type)
+	var type_color := FlowNodeBase.getColorForFlowDataType(data_type)
 	_apply_type_button_background(type_button, "normal", type_color.darkened(0.42))
 	_apply_type_button_background(type_button, "hover", type_color.darkened(0.34))
 	_apply_type_button_background(type_button, "pressed", type_color.darkened(0.26))
@@ -399,23 +399,6 @@ func _apply_type_button_background(
 	flat_stylebox.bg_color = bg_color
 	flat_stylebox.draw_center = true
 	type_button.add_theme_stylebox_override(style_name, flat_stylebox)
-
-
-func _ue_type_color(data_type: int) -> Color:
-	match data_type:
-		FlowData.DataType.Bool:
-			return Color("c21f1f")
-		FlowData.DataType.Int:
-			return Color("2dd4a3")
-		FlowData.DataType.Float:
-			return Color("67e34d")
-		FlowData.DataType.Vector:
-			return Color("ffd23f")
-		FlowData.DataType.String:
-			return Color("f12cff")
-		FlowData.DataType.Resource:
-			return Color("1685ff")
-	return Color("7a8494")
 
 
 func _apply_editor_icon(button: Button, icon_name: String, icon_only: bool = false) -> void:
