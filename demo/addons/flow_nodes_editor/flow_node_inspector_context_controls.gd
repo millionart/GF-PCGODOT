@@ -8,6 +8,8 @@ const NODE_CONTEXT_META := &"_flow_inspector_node_context"
 static func set_node_context(settings: Object, node: FlowNodeBase) -> void:
 	if settings == null:
 		return
+	if settings.has_meta(NODE_CONTEXT_META):
+		settings.remove_meta(NODE_CONTEXT_META)
 	settings.set_meta(NODE_CONTEXT_META, node)
 
 

@@ -3371,15 +3371,18 @@ func canConnect( src : FlowNodeBase, src_port : int, dst : FlowNodeBase, dst_por
 		
 	var src_type = src.get_output_port_type( src_port )
 	var dst_type = dst.get_input_port_type( dst_port )
-	# When both ports have an explicit non-zero type they must match exactly.
-	# A zero (default/untyped) port is treated as a wildcard and connects to anything.
-	if src_type != 0 and dst_type != 0:
+	# When both ports have an explicit type they must match exactly.
+	# Default/untyped ports and DataType.Invalid ports are treated as wildcards.
+	if not _is_wildcard_port_type( src_type ) and not _is_wildcard_port_type( dst_type ):
 		if src_type != dst_type:
 			push_warning( "Node types do not match %d vs %d" % [ src_type, dst_type ])
 			return false
 		
 	#print( "canConnect OK %s:%d (%d)-> %s:%d (%d)" % [ src.name, src_port, src_type, dst.name, dst_port, dst_type ] )
 	return true
+
+func _is_wildcard_port_type( data_type : int ) -> bool:
+	return data_type == 0 or data_type == FlowData.DataType.Invalid
 
 func _node_needs_parameter_sync(node_template: String) -> bool:
 	return node_template == "input" or node_template.begins_with("input_")
@@ -4806,14 +4809,7 @@ func _on_graph_edit_connection_request(from_node: StringName, from_port: int, to
 	# Check if the input does not allow multiple connections
 	var to_port_meta = dst_node.getMeta().ins[ to_port ] if to_port < dst_node.getMeta().ins.size() else {}
 	if not to_port_meta.get( "multiple_connections", true ):
-		var conn = findConnectionToNodeAndPort( dst_node, to_port )
-		if conn != null:
-			conns_to_remove.append({
-				"from_node": conn.from_node,
-				"from_port": conn.from_port,
-				"to_node": conn.to_node,
-				"to_port": conn.to_port
-			})
+		conns_to_remove = _get_graph_edit_connections_to_input_port( to_node, to_port )
 	
 	var conns_to_add = [{
 		"from_node": from_node,
@@ -4834,6 +4830,19 @@ func _on_graph_edit_connection_request(from_node: StringName, from_port: int, to
 	else:
 		apply_connections_change(conns_to_remove, conns_to_add)
 	
+func _get_graph_edit_connections_to_input_port( to_node : StringName, to_port : int ) -> Array:
+	var connections := []
+	for conn in gedit.get_connection_list():
+		if conn.to_node != to_node or conn.to_port != to_port:
+			continue
+		connections.append({
+			"from_node": conn.from_node,
+			"from_port": conn.from_port,
+			"to_node": conn.to_node,
+			"to_port": conn.to_port
+		})
+	return connections
+
 func get_connected_sources(to_node: StringName, to_port: int) -> Array:
 	return input_sources.get([to_node, to_port], [])
 	
@@ -5507,6 +5516,8 @@ func _eval_cache_resource_storage_fingerprint(resource: Resource, depth: int = 0
 	var props := []
 	for prop in resource.get_property_list():
 		var prop_name := String(prop.name)
+		if FlowInspectorPropertyPolicy.is_metadata_property(prop_name):
+			continue
 		if prop_name in FlowNodeAssets.discardted_props:
 			continue
 		if EVAL_CACHE_IGNORED_SETTING_PROPS.has(prop_name):

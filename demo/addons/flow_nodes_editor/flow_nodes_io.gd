@@ -11,15 +11,20 @@ const TRANSIENT_SETTINGS_PROPS := {
 	"inspect_enabled": true,
 }
 
+static func _is_metadata_property(property_name: String) -> bool:
+	return property_name.begins_with("metadata/")
+
 static func resource_to_dict(resource: Resource) -> Dictionary:
 	var dict := {}
 	for prop in resource.get_property_list():
-		if prop.name in FlowNodeAssets.discardted_props:
+		var name := String(prop.name)
+		if _is_metadata_property(name):
 			continue
-		if TRANSIENT_SETTINGS_PROPS.has(String(prop.name)):
+		if name in FlowNodeAssets.discardted_props:
+			continue
+		if TRANSIENT_SETTINGS_PROPS.has(name):
 			continue
 		if prop.usage & PROPERTY_USAGE_STORAGE != 0:
-			var name = prop.name
 			dict[name] = resource.get(name)
 	return dict
 	
@@ -53,7 +58,9 @@ static  func _parse_vector3(value) -> Vector3:
 
 static func dict_to_resource(data: Dictionary, resource: Resource) -> void:
 	for prop in resource.get_property_list():
-		var name = prop.name
+		var name := String(prop.name)
+		if _is_metadata_property(name):
+			continue
 		if name in FlowNodeAssets.discardted_props:
 			continue
 		if TRANSIENT_SETTINGS_PROPS.has(String(name)):

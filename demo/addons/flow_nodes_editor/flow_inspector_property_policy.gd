@@ -98,6 +98,10 @@ static func is_hidden_resource_property(property_name: String) -> bool:
 	return HIDDEN_RESOURCE_PROPERTIES.has(property_name)
 
 
+static func is_metadata_property(property_name: String) -> bool:
+	return property_name.begins_with("metadata/")
+
+
 static func should_hide_resource_builtin_rows() -> bool:
 	var editor_settings := EditorInterface.get_editor_settings()
 	if editor_settings == null:
@@ -114,6 +118,8 @@ static func should_show_property(
 	require_storage: bool = true,
 	skip_resource_builtin_rows: bool = true,
 ) -> bool:
+	if is_metadata_property(property_name):
+		return false
 	if skip_resource_builtin_rows and should_hide_resource_builtin_rows() and is_hidden_resource_property(property_name):
 		return false
 	if require_storage and (int(usage_flags) & PROPERTY_USAGE_STORAGE) == 0:

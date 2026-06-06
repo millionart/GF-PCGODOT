@@ -7,7 +7,7 @@ func _init():
 	meta_node = {
 		"title" : "Set Variable",
 		"settings" : SetVariableNodeSettings,
-		"ins" : [{ "label" : "In", "data_type" : FlowData.DataType.Invalid }],
+		"ins" : [{ "label" : "In", "data_type" : FlowData.DataType.Invalid, "multiple_connections" : false }],
 		"outs" : [{ "label" : "Out", "data_type" : FlowData.DataType.Invalid }],
 		"tooltip" : "Stores the input data in a named graph variable and passes it through unchanged.",
 		"category" : "Metadata",
