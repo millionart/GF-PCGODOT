@@ -53,6 +53,8 @@ static func _fast_execute_set(
 	ctx.variables[variable_name] = in_data
 	_mirror_variables_to_runtime(ctx)
 	node.set_output(0, in_data)
+	if node.has_method("refreshVariablePinColors"):
+		node.refreshVariablePinColors()
 	return true
 
 
@@ -68,6 +70,8 @@ static func _fast_execute_get(node: FlowNodeBase, ctx: FlowData.EvaluationContex
 		node.set_output(0, FlowData.Data.new())
 		return true
 	node.set_output(0, data)
+	if node.has_method("refreshVariablePinColors"):
+		node.refreshVariablePinColors()
 	_mirror_variables_to_runtime(ctx)
 	return true
 

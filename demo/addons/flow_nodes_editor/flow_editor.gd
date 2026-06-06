@@ -5078,6 +5078,13 @@ func getSetVariableColor(variable_name: String) -> Color:
 		return node.settings.node_color
 	return Color("22d3ee")
 
+func getSetVariableDataType(variable_name: String) -> FlowData.DataType:
+	var requested_name := variable_name.strip_edges()
+	for node in getSetVariableNodes(requested_name):
+		if node.has_method("getVariableDataType"):
+			return int(node.call("getVariableDataType"))
+	return FlowData.DataType.Invalid
+
 func refreshVariableNodes() -> void:
 	for node in getAllNodes():
 		if node.node_template != "set_variable" and node.node_template != "get_variable":
@@ -5086,6 +5093,13 @@ func refreshVariableNodes() -> void:
 			node.refreshVariableChoices()
 		node.dirty = true
 		node.refreshFromSettings()
+
+func refreshVariablePinColors() -> void:
+	for node in getAllNodes():
+		if node.node_template != "set_variable" and node.node_template != "get_variable":
+			continue
+		if node.has_method("refreshVariablePinColors"):
+			node.refreshVariablePinColors()
 	
 func getEvalOrder() -> Array[FlowNodeBase]:
 	var node_list := getAllNodes()
@@ -6157,9 +6171,19 @@ func _on_track_external_edits_toggled(toggled_on: bool) -> void:
 	_save_editor_settings()
 
 func apply_connections_change(conns_to_remove: Array, conns_to_add: Array):
+	var refresh_variable_pins := _connection_changes_touch_set_variable(conns_to_remove) or _connection_changes_touch_set_variable(conns_to_add)
 	for c in conns_to_remove:
 		disconnect_nodes(c.from_node, c.from_port, c.to_node, c.to_port)
 	for c in conns_to_add:
 		connect_nodes(c.from_node, c.from_port, c.to_node, c.to_port)
+	if refresh_variable_pins:
+		refreshVariablePinColors()
 	queueSave()
 	queueRegen()
+
+func _connection_changes_touch_set_variable(connections: Array) -> bool:
+	for c in connections:
+		var node = gedit_nodes_by_name.get(c.to_node) as FlowNodeBase
+		if node != null and node.node_template == "set_variable":
+			return true
+	return false

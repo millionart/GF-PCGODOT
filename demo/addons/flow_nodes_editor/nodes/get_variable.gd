@@ -32,6 +32,13 @@ func _get_variable_color() -> Color:
 func _get_custom_node_color() -> Color:
 	return _get_variable_color()
 
+func _get_variable_data_type() -> FlowData.DataType:
+	var variable_name := _variable_name()
+	var editor = getEditor()
+	if editor and editor.has_method("getSetVariableDataType"):
+		return editor.getSetVariableDataType(variable_name)
+	return FlowData.DataType.Invalid
+
 func getTitle() -> String:
 	var variable_name := _variable_name()
 	if variable_name.is_empty():
@@ -76,10 +83,17 @@ func refreshVariableChoices() -> void:
 func refreshFromSettings():
 	super.refreshFromSettings()
 	refreshVariableChoices()
-	var color := _get_variable_color()
+	title = getTitle()
+	refreshVariablePinColors()
+
+func refreshVariablePinColors() -> void:
+	var data_type := _get_variable_data_type()
+	var color := Color.WHITE
+	if data_type != FlowData.DataType.Invalid:
+		color = getColorForFlowDataType(data_type)
 	if is_slot_enabled_right(0):
 		set_slot_color_right(0, color)
-	title = getTitle()
+		set_slot_type_right(0, FlowData.DataType.Invalid)
 
 func _place_variable_option_on_connector_row() -> void:
 	var row : FlowConnectorRow
@@ -124,10 +138,13 @@ func execute(ctx : FlowData.EvaluationContext):
 	if variable_name.is_empty():
 		setError("No variable selected")
 		set_output(0, FlowData.Data.new())
+		refreshVariablePinColors()
 		return
 	var data = ctx.variables.get(variable_name, null)
 	if data == null:
 		setError("Variable '%s' is not set" % variable_name)
 		set_output(0, FlowData.Data.new())
+		refreshVariablePinColors()
 		return
 	set_output(0, data)
+	refreshVariablePinColors()

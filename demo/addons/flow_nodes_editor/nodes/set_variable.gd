@@ -33,14 +33,66 @@ func getTitle() -> String:
 func getExposedParams():
 	return []
 
+func getVariableDataType() -> FlowData.DataType:
+	var data_type := _get_connected_input_data_type()
+	if data_type != FlowData.DataType.Invalid:
+		return data_type
+	return _get_generated_data_type()
+
 func refreshFromSettings():
 	super.refreshFromSettings()
-	var color := _get_custom_node_color()
+	title = getTitle()
+	refreshVariablePinColors()
+
+func refreshVariablePinColors() -> void:
+	var data_type := getVariableDataType()
+	var color := Color.WHITE
+	if data_type != FlowData.DataType.Invalid:
+		color = getColorForFlowDataType(data_type)
 	if is_slot_enabled_left(0):
 		set_slot_color_left(0, color)
+		set_slot_type_left(0, FlowData.DataType.Invalid)
 	if is_slot_enabled_right(0):
 		set_slot_color_right(0, color)
-	title = getTitle()
+		set_slot_type_right(0, FlowData.DataType.Invalid)
+
+func _get_connected_input_data_type() -> FlowData.DataType:
+	var editor = getEditor()
+	if editor == null or not editor.has_method("get_connected_sources"):
+		return FlowData.DataType.Invalid
+	var sources: Array = editor.get_connected_sources(name, 0)
+	for source in sources:
+		if source.size() < 2:
+			continue
+		var source_node = editor.gedit_nodes_by_name.get(source[0]) as FlowNodeBase
+		if source_node == null:
+			continue
+		var data_type := int(source_node.get_output_port_type(int(source[1])))
+		if data_type != FlowData.DataType.Invalid:
+			return data_type
+		if source_node.has_method("getVariableDataType"):
+			data_type = int(source_node.call("getVariableDataType"))
+			if data_type != FlowData.DataType.Invalid:
+				return data_type
+	return FlowData.DataType.Invalid
+
+func _get_generated_data_type() -> FlowData.DataType:
+	for bulk_idx in range(generated_bulks.size() - 1, -1, -1):
+		var bulk: Array = generated_bulks[bulk_idx]
+		if bulk.is_empty():
+			continue
+		var data := bulk[0] as FlowData.Data
+		var data_type := _get_first_stream_data_type(data)
+		if data_type != FlowData.DataType.Invalid:
+			return data_type
+	var in_data := get_optional_input(0) as FlowData.Data
+	return _get_first_stream_data_type(in_data)
+
+func _get_first_stream_data_type(data: FlowData.Data) -> FlowData.DataType:
+	if data == null or data.streams.is_empty():
+		return FlowData.DataType.Invalid
+	var stream = data.streams[data.streams.keys()[0]]
+	return int(stream.get("data_type", FlowData.DataType.Invalid))
 
 func execute(ctx : FlowData.EvaluationContext):
 	var in_data : FlowData.Data = get_optional_input(0)
@@ -50,6 +102,8 @@ func execute(ctx : FlowData.EvaluationContext):
 	if variable_name.is_empty():
 		setError("Variable name can't be empty")
 		set_output(0, in_data)
+		refreshVariablePinColors()
 		return
 	ctx.variables[variable_name] = in_data
 	set_output(0, in_data)
+	refreshVariablePinColors()
