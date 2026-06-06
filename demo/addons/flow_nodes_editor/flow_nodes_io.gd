@@ -14,6 +14,27 @@ const TRANSIENT_SETTINGS_PROPS := {
 static func _is_metadata_property(property_name: String) -> bool:
 	return property_name.begins_with("metadata/")
 
+static func graph_file_fingerprint(graph: FlowGraphResource) -> Array:
+	if graph == null or graph.resource_path == "":
+		return []
+	if not ResourceLoader.exists(graph.resource_path):
+		return []
+	return [
+		graph.resource_path,
+		FileAccess.get_modified_time(graph.resource_path),
+		FileAccess.get_md5(graph.resource_path),
+	]
+
+static func fresh_graph_for_evaluation(graph: FlowGraphResource) -> FlowGraphResource:
+	if graph == null or graph.resource_path == "":
+		return graph
+	if not ResourceLoader.exists(graph.resource_path):
+		return graph
+	var fresh = ResourceLoader.load(graph.resource_path, "Resource", ResourceLoader.CACHE_MODE_REPLACE)
+	if fresh is FlowGraphResource:
+		return fresh
+	return graph
+
 static func resource_to_dict(resource: Resource) -> Dictionary:
 	var dict := {}
 	for prop in resource.get_property_list():

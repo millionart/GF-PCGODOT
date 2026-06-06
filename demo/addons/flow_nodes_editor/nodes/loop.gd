@@ -76,17 +76,18 @@ func onPropChanged( prop_name : String ):
 		initFromScript()
 
 func execute( ctx : FlowData.EvaluationContext ):
-	if not settings.graph:
+	var graph := FlowNodeIO.fresh_graph_for_evaluation(settings.graph) if settings else null
+	if not graph:
 		setError("No graph assigned to Loop")
 		return
 		
-	if not settings.graph.findInParamByName(settings.item_input_name):
+	if not graph.findInParamByName(settings.item_input_name):
 		setError("Loop graph does not have input parameter: %s" % settings.item_input_name)
 		return
 		
 	var has_output = false
-	if settings.graph.data and settings.graph.data.has("nodes"):
-		for n_data in settings.graph.data["nodes"]:
+	if graph.data and graph.data.has("nodes"):
+		for n_data in graph.data["nodes"]:
 			if n_data.get("template") == "output":
 				var node_settings = n_data.get("settings", {})
 				if node_settings.get("name", "out_val") == settings.output_attribute_name:
@@ -102,7 +103,7 @@ func execute( ctx : FlowData.EvaluationContext ):
 		if settings.feedback_param_name != "":
 			var feedback_data : FlowData.Data = null
 			var input_idx = 1
-			for param in settings.graph.in_params:
+			for param in graph.in_params:
 				if param and param.name != settings.item_input_name:
 					if param.name == settings.feedback_param_name:
 						feedback_data = get_optional_input(input_idx)
@@ -119,7 +120,7 @@ func execute( ctx : FlowData.EvaluationContext ):
 	var feedback_data : FlowData.Data = null
 	if settings.feedback_param_name != "":
 		var input_idx = 1
-		for param in settings.graph.in_params:
+		for param in graph.in_params:
 			if param and param.name != settings.item_input_name:
 				if param.name == settings.feedback_param_name:
 					feedback_data = get_optional_input(input_idx)
@@ -135,7 +136,7 @@ func execute( ctx : FlowData.EvaluationContext ):
 		
 		# Map extra input parameters
 		var input_idx = 1
-		for param in settings.graph.in_params:
+		for param in graph.in_params:
 			if param and param.name != settings.item_input_name:
 				if param.name == settings.feedback_param_name:
 					input_data_map[param.name] = feedback_data.duplicate() if feedback_data != null else FlowData.Data.new()
@@ -147,7 +148,7 @@ func execute( ctx : FlowData.EvaluationContext ):
 				
 		var FlowNodeIOClass = load("res://addons/flow_nodes_editor/flow_nodes_io.gd")
 		var child_depth := int(ctx.runtime_params.get("__eval_depth", 0)) + 1
-		var outputs = FlowNodeIOClass.evaluate_graph(settings.graph, input_data_map, ctx, {}, child_depth)
+		var outputs = FlowNodeIOClass.evaluate_graph(graph, input_data_map, ctx, {}, child_depth)
 		
 		var result_data = outputs.get(settings.output_attribute_name, null)
 		if result_data == null:

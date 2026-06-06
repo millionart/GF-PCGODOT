@@ -5350,7 +5350,12 @@ func _eval_cache_graph_resource_fingerprint(graph: FlowGraphResource, depth: int
 	if graph == null:
 		return ["FlowGraphResource", null]
 	if depth > 6:
-		return ["FlowGraphResource", graph.resource_path, graph.get_instance_id()]
+		return [
+			"FlowGraphResource",
+			graph.resource_path,
+			graph.get_instance_id(),
+			FlowNodeIO.graph_file_fingerprint(graph),
+		]
 	var nodes := []
 	var node_items: Array = graph.data.get("nodes", [])
 	for node_data in node_items:
@@ -5378,6 +5383,7 @@ func _eval_cache_graph_resource_fingerprint(graph: FlowGraphResource, depth: int
 		"FlowGraphResource",
 		graph.resource_path,
 		graph.get_instance_id() if graph.resource_path == "" else 0,
+		FlowNodeIO.graph_file_fingerprint(graph),
 		_eval_cache_graph_params_fingerprint(graph.in_params),
 		_eval_cache_graph_params_fingerprint(graph.out_params),
 		nodes,

@@ -23,24 +23,30 @@ func _on_graph_params_changed():
 	refreshFromParameterSignal()
 
 func getMeta() -> Dictionary:
+	var port_meta := _get_port_meta(settings.graph if settings else null)
+	meta_node.ins = port_meta.ins
+	meta_node.outs = port_meta.outs
+	return meta_node
+
+func _get_port_meta(graph: FlowGraphResource) -> Dictionary:
 	var ins = []
 	var outs = []
-	if settings and settings.graph:
-		for param in settings.graph.in_params:
+	if graph:
+		for param in graph.in_params:
 			if param:
 				ins.append({
 					"label": param.name,
 					"data_type": param.data_type
 				})
-		if "out_params" in settings.graph and settings.graph.out_params.size() > 0:
-			for param in settings.graph.out_params:
+		if "out_params" in graph and graph.out_params.size() > 0:
+			for param in graph.out_params:
 				if param:
 					outs.append({
 						"label": param.name,
 						"data_type": param.data_type
 					})
-		elif settings.graph.data and settings.graph.data.has("nodes"):
-			for n_data in settings.graph.data["nodes"]:
+		elif graph.data and graph.data.has("nodes"):
+			for n_data in graph.data["nodes"]:
 				if n_data.get("template") == "output":
 					var node_settings = n_data.get("settings", {})
 					var out_name = node_settings.get("name", "out_val")
@@ -49,9 +55,10 @@ func getMeta() -> Dictionary:
 						"label": out_name,
 						"data_type": out_type
 					})
-	meta_node.ins = ins
-	meta_node.outs = outs
-	return meta_node
+	return {
+		"ins": ins,
+		"outs": outs,
+	}
 
 func getTitle() -> String:
 	if settings and settings.graph:
@@ -87,38 +94,38 @@ func onPropChanged( prop_name : String ):
 		initFromScript()
 
 func execute( ctx : FlowData.EvaluationContext ):
-	if not settings.graph:
+	var graph := FlowNodeIO.fresh_graph_for_evaluation(settings.graph) if settings else null
+	if not graph:
 		setError("No graph assigned to Subgraph node '%s'" % getTitle())
 		return
 		
 	var input_data_map = {}
 	_last_input_data_map = {}
-	if settings.graph:
-		for i in range(settings.graph.in_params.size()):
-			var param = settings.graph.in_params[i]
-			if param:
-				var in_data = get_optional_input(i)
-				if in_data:
-					# Priority 1: Connected wire
-					input_data_map[param.name] = in_data
-					_last_input_data_map[param.name] = in_data
-				elif settings.has_param_override(param.name):
-					# Priority 2: Per-instance override
-					var override_val = settings.get_param_value(param)
-					var override_data = FlowData.Data.new()
-					var container = override_data.addStream(param.name, param.data_type)
-					if container != null:
-						container.resize(1)
-						FlowData.Data.writeValue(container, 0, override_val, param.data_type)
-					input_data_map[param.name] = override_data
-					_last_input_data_map[param.name] = override_data
-				# Priority 3: Graph default (handled by the evaluator's input node)
+	for i in range(graph.in_params.size()):
+		var param = graph.in_params[i]
+		if param:
+			var in_data = get_optional_input(i)
+			if in_data:
+				# Priority 1: Connected wire
+				input_data_map[param.name] = in_data
+				_last_input_data_map[param.name] = in_data
+			elif settings.has_param_override(param.name):
+				# Priority 2: Per-instance override
+				var override_val = settings.get_param_value(param)
+				var override_data = FlowData.Data.new()
+				var container = override_data.addStream(param.name, param.data_type)
+				if container != null:
+					container.resize(1)
+					FlowData.Data.writeValue(container, 0, override_val, param.data_type)
+				input_data_map[param.name] = override_data
+				_last_input_data_map[param.name] = override_data
+			# Priority 3: Graph default (handled by the evaluator's input node)
 	
 	var FlowNodeIOClass = load("res://addons/flow_nodes_editor/flow_nodes_io.gd")
 	var child_depth := int(ctx.runtime_params.get("__eval_depth", 0)) + 1
-	var debug_meta := _push_child_debug_input_meta(ctx, input_data_map)
+	var debug_meta := _push_child_debug_input_meta(ctx, input_data_map, graph)
 	var outputs = FlowNodeIOClass.evaluate_graph(
-		settings.graph,
+		graph,
 		input_data_map,
 		ctx,
 		_child_runtime_params(),
@@ -126,7 +133,7 @@ func execute( ctx : FlowData.EvaluationContext ):
 	)
 	_pop_child_debug_input_meta(debug_meta)
 	
-	var meta = getMeta()
+	var meta = _get_port_meta(graph)
 	var missing_outputs := PackedStringArray()
 	for i in range(meta.outs.size()):
 		var out_info = meta.outs[i]
@@ -194,7 +201,7 @@ func _align_debug_draw_to_owner() -> void:
 		return
 	RenderingServer.instance_set_transform(draw_debug.instance_rid, owner_node.global_transform)
 
-func _push_child_debug_input_meta(ctx: FlowData.EvaluationContext, input_data_map: Dictionary) -> Dictionary:
+func _push_child_debug_input_meta(ctx: FlowData.EvaluationContext, input_data_map: Dictionary, graph: FlowGraphResource) -> Dictionary:
 	var owner = ctx.owner if ctx else null
 	if owner == null:
 		return {"owner": null}
@@ -205,7 +212,7 @@ func _push_child_debug_input_meta(ctx: FlowData.EvaluationContext, input_data_ma
 		"had_input_data_map": owner.has_meta("flow_debug_input_data_map"),
 		"input_data_map": owner.get_meta("flow_debug_input_data_map") if owner.has_meta("flow_debug_input_data_map") else null,
 	}
-	owner.set_meta("flow_debug_graph", settings.graph)
+	owner.set_meta("flow_debug_graph", graph)
 	owner.set_meta("flow_debug_input_data_map", input_data_map)
 	return previous
 
