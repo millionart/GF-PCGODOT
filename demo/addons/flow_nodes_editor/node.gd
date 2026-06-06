@@ -474,44 +474,45 @@ func _draw_output_badges():
 	if output_summaries.is_empty():
 		return
 	var font = ThemeDB.fallback_font
-	var font_size := int(10 * ui_scale)
-	var badge_h := font_size + 4
-	
-	var port_controls = get_children().filter(func(c): return c is FlowConnectorRow)
+	var font_size := int(9 * ui_scale)
 	
 	for port_idx in range(mini(output_summaries.size(), num_out_ports)):
 		var summary = output_summaries[port_idx]
 		if summary == null:
 			continue
 		var pts = summary.points
-		var badge_text: String
+		var badge_text := str(pts)
 		if pts >= 1000:
 			badge_text = "%.*fk" % [1, pts / 1000.0]
-		else:
-			badge_text = "%d pts" % pts
-		
-		# Get the Y position of this output port using custom control filter (safer than get_output_port_position)
-		var port_y := 0.0
-		if port_idx < port_controls.size():
-			var ctrl = port_controls[port_idx]
-			port_y = ctrl.position.y + ctrl.size.y * 0.5
-		else:
-			continue # if control isn't in tree yet
-			
+
 		var text_width = font.get_string_size(badge_text, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size).x
-		var badge_w = text_width + 8
-		
-		# Draw badge background (pill shape)
-		var badge_x = size.x - badge_w - 18 * ui_scale
-		var badge_y = port_y - badge_h * 0.5
+		var badge_h = maxf(16.0 * ui_scale, font_size + 6.0 * ui_scale)
+		var badge_w = maxf(badge_h, text_width + 10.0 * ui_scale)
+		if port_idx >= get_output_port_count() or not is_slot_enabled_right(port_idx):
+			continue
+		var port_pos := get_output_port_position(port_idx)
+		var port_color := get_output_port_color(port_idx)
+		if port_color == Color():
+			port_color = Color(0.13, 0.72, 0.93)
+		var badge_center := Vector2(port_pos.x, port_pos.y)
+		var badge_rect := Rect2(
+			badge_center.x - badge_w * 0.5,
+			badge_center.y - badge_h * 0.5,
+			badge_w,
+			badge_h
+		)
 		var badge_sb = StyleBoxFlat.new()
-		badge_sb.bg_color = Color(0.13, 0.72, 0.93, 0.2) # Subtle cyan
+		badge_sb.bg_color = Color(port_color.r, port_color.g, port_color.b, 0.95)
+		badge_sb.border_color = Color(0.0, 0.0, 0.0, 0.35)
+		badge_sb.set_border_width_all(maxi(1, int(1.0 * ui_scale)))
 		badge_sb.set_corner_radius_all(int(badge_h * 0.5))
-		draw_style_box(badge_sb, Rect2(badge_x, badge_y, badge_w, badge_h))
+		draw_style_box(badge_sb, badge_rect)
 		
-		# Draw badge text
-		var text_y = badge_y + badge_h - 3
-		draw_string(font, Vector2(badge_x + 4, text_y), badge_text, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size, Color(0.13, 0.72, 0.93, 0.85))
+		var text_pos := Vector2(
+			badge_center.x - text_width * 0.5,
+			badge_center.y + font_size * 0.35
+		)
+		draw_string(font, text_pos, badge_text, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size, Color(0.02, 0.03, 0.04, 0.92))
 
 func getMeta() -> Dictionary:
 	return meta_node
