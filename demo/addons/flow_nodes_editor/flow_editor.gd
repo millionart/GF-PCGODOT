@@ -2839,20 +2839,18 @@ func _run_forced_graph_eval(analyze_node: FlowNodeBase = null) -> void:
 	if regen_running:
 		_cancel_regen_run()
 	var prev_suppress_eval_activity := suppress_eval_activity
+	var previous_runtime_params := ctx.runtime_params.duplicate(true)
+	var previous_owner_args = resource_owner.args.duplicate(true) if resource_owner != null and "args" in resource_owner else null
 	suppress_eval_activity = true
 	markAllNodesAsDirty()
-	if analyze_node == null:
-		evalGraph()
-		suppress_eval_activity = prev_suppress_eval_activity
-		return
-	var had_analyze_node := ctx.runtime_params.has("flow_analyze_node")
-	var old_analyze_node = ctx.runtime_params.get("flow_analyze_node")
-	ctx.runtime_params["flow_analyze_node"] = analyze_node.name
+	ctx.runtime_params["flow_suppress_preview_side_effects"] = true
+	ctx.runtime_params["flow_suppress_seed_advance"] = true
+	if analyze_node != null:
+		ctx.runtime_params["flow_analyze_node"] = analyze_node.name
 	evalGraph()
-	if had_analyze_node:
-		ctx.runtime_params["flow_analyze_node"] = old_analyze_node
-	else:
-		ctx.runtime_params.erase("flow_analyze_node")
+	ctx.runtime_params = previous_runtime_params
+	if previous_owner_args is Dictionary and resource_owner != null and "args" in resource_owner:
+		resource_owner.args = previous_owner_args
 	suppress_eval_activity = prev_suppress_eval_activity
 
 func _setup_inline_analyze_panel():
