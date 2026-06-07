@@ -199,7 +199,10 @@ func _align_debug_draw_to_owner() -> void:
 		owner_node = editor.call("find_debug_world_node") as Node3D
 	if owner_node == null or not owner_node.is_inside_tree():
 		return
-	RenderingServer.instance_set_transform(draw_debug.instance_rid, owner_node.global_transform)
+	if draw_debug.has_method("set_instance_transform"):
+		draw_debug.call("set_instance_transform", owner_node.global_transform)
+	else:
+		RenderingServer.instance_set_transform(draw_debug.instance_rid, owner_node.global_transform)
 
 func _push_child_debug_input_meta(ctx: FlowData.EvaluationContext, input_data_map: Dictionary, graph: FlowGraphResource) -> Dictionary:
 	var owner = ctx.owner if ctx else null
@@ -211,6 +214,8 @@ func _push_child_debug_input_meta(ctx: FlowData.EvaluationContext, input_data_ma
 		"graph": owner.get_meta("flow_debug_graph") if owner.has_meta("flow_debug_graph") else null,
 		"had_input_data_map": owner.has_meta("flow_debug_input_data_map"),
 		"input_data_map": owner.get_meta("flow_debug_input_data_map") if owner.has_meta("flow_debug_input_data_map") else null,
+		"current_graph": graph,
+		"current_input_data_map": input_data_map,
 	}
 	owner.set_meta("flow_debug_graph", graph)
 	owner.set_meta("flow_debug_input_data_map", input_data_map)
@@ -220,14 +225,29 @@ func _pop_child_debug_input_meta(previous: Dictionary) -> void:
 	var owner = previous.get("owner", null)
 	if owner == null:
 		return
+	var current_graph = previous.get("current_graph", null)
+	var previous_graph = previous.get("graph", null)
+	if bool(previous.get("had_graph", false)) and _is_same_graph_resource(previous_graph, current_graph):
+		owner.set_meta("flow_debug_graph", previous_graph)
+		owner.set_meta("flow_debug_input_data_map", previous.get("current_input_data_map", {}))
+		return
 	if bool(previous.get("had_graph", false)):
-		owner.set_meta("flow_debug_graph", previous.get("graph"))
+		owner.set_meta("flow_debug_graph", previous_graph)
 	else:
 		owner.remove_meta("flow_debug_graph")
 	if bool(previous.get("had_input_data_map", false)):
 		owner.set_meta("flow_debug_input_data_map", previous.get("input_data_map"))
 	else:
 		owner.remove_meta("flow_debug_input_data_map")
+
+func _is_same_graph_resource(left, right) -> bool:
+	if left == right:
+		return true
+	if not (left is FlowGraphResource) or not (right is FlowGraphResource):
+		return false
+	if left.resource_path == "" or right.resource_path == "":
+		return false
+	return left.resource_path == right.resource_path
 
 func _child_runtime_params() -> Dictionary:
 	if settings == null:
@@ -244,7 +264,7 @@ func _debug_bulk_has_point_stream() -> bool:
 		return false
 	var port_index := clampi(settings.debug_output, 0, generated_bulks[bulk_index].size() - 1)
 	var out_data: FlowData.Data = get_bulk_output(bulk_index, port_index)
-	return out_data != null and out_data.hasStream(FlowData.AttrPosition)
+	return out_data != null and out_data.getTransformsStream() != null
 
 func _queue_full_graph_eval_for_debug() -> void:
 	if _debug_full_eval_queued:

@@ -11,6 +11,8 @@ var multimesh_rid : RID
 var instance_rid : RID
 var mesh_resource: Mesh = preload( "res://addons/flow_nodes_editor/resources/unit_cube.tres" )
 var selection_color := Color.MAGENTA
+var last_debug_transform_signature: Array = []
+var last_instance_transform: Transform3D = Transform3D.IDENTITY
 	
 func _ready():
 	scenario_rid = _resolve_debug_scenario()
@@ -19,6 +21,7 @@ func _exit_tree():
 	cleanup_multimesh_direct()
 	
 func cleanup_multimesh_direct():
+	last_debug_transform_signature = []
 	if instance_rid.is_valid():
 		RenderingServer.free_rid(instance_rid)
 		instance_rid = RID()
@@ -57,7 +60,12 @@ func create_multimesh_direct():
 	
 	# Set transform
 	var global_transform : Transform3D = Transform3D.IDENTITY
-	RenderingServer.instance_set_transform(instance_rid, global_transform)
+	set_instance_transform(global_transform)
+
+func set_instance_transform(global_transform: Transform3D) -> void:
+	last_instance_transform = global_transform
+	if instance_rid.is_valid():
+		RenderingServer.instance_set_transform(instance_rid, global_transform)
 
 func _sync_instance_scenario() -> void:
 	var resolved := _resolve_debug_scenario()
@@ -232,9 +240,21 @@ func setupDraw():
 		
 	var out_data : FlowData.Data = node.get_bulk_output(s.debug_bulk, s.debug_output)
 	if not out_data || !out_data.hasStream( FlowData.AttrPosition ):
+		cleanup_multimesh_direct()
 		print( "setupDebugDraw failed - out_data" )
 		return
+
+	var transforms := out_data.getTransformsStream()
+	if transforms == null:
+		cleanup_multimesh_direct()
+		if out_data.size() > 0:
+			print( "setupDebugDraw failed - positions/eulers" )
+		return
+
 	var instance_count = out_data.size()
+	if instance_count <= 0:
+		cleanup_multimesh_direct()
+		return
 		
 	if not multimesh_rid.is_valid() or RenderingServer.multimesh_get_instance_count(multimesh_rid) < instance_count:
 		create_multimesh_direct()
@@ -243,11 +263,6 @@ func setupDraw():
 		print( "setupDebugDraw failed - multimesh_rid" )
 		return
 		
-	var transforms := out_data.getTransformsStream()
-	if transforms == null:
-		print( "setupDebugDraw failed - positions/eulers" )
-		return
-	
 	var debug_row = node.debug_row
 	var allocated_count = instance_count
 	if debug_row != -1 and debug_row < instance_count:
@@ -262,6 +277,7 @@ func setupDraw():
 		var positions := transforms.positions
 		var eulers := transforms.eulers
 		var sizes := transforms.sizes
+		last_debug_transform_signature = _transform_signature(positions, sizes, instance_count)
 		for idx in range( instance_count ):
 			var t := Transform3D( Basis.from_euler( eulers[idx] * PI / 180.0 ), positions[idx] ).scaled_local( sizes[idx] )
 			RenderingServer.multimesh_instance_set_transform( multimesh_rid, idx, t)
@@ -270,6 +286,7 @@ func setupDraw():
 		var abs_scale := Vector3.ONE * node.settings.debug_scale
 		var positions := transforms.positions
 		var eulers := transforms.eulers
+		last_debug_transform_signature = _transform_signature(positions, PackedVector3Array(), instance_count, abs_scale)
 		for idx in range( instance_count ):
 			# Inlining the calls reduced from 40ms to 16ms
 			var t := Transform3D( Basis.from_euler( eulers[idx] * PI / 180.0 ).scaled( abs_scale ), positions[idx] )
@@ -283,3 +300,21 @@ func setupDraw():
 		t = t.scaled_local( Vector3.ONE * 1.01 )
 		RenderingServer.multimesh_instance_set_transform( multimesh_rid, instance_count, t)
 		RenderingServer.multimesh_instance_set_color( multimesh_rid, instance_count, selection_color )
+
+func _transform_signature(
+	positions: PackedVector3Array,
+	sizes: PackedVector3Array,
+	instance_count: int,
+	fallback_size: Vector3 = Vector3.ONE
+) -> Array:
+	var signature := []
+	for idx in range(instance_count):
+		var size := fallback_size
+		if idx < sizes.size():
+			size = sizes[idx]
+		signature.append("%s|%s" % [_vector_key(positions[idx]), _vector_key(size)])
+	signature.sort()
+	return signature
+
+func _vector_key(value: Vector3) -> String:
+	return "%.3f,%.3f,%.3f" % [value.x, value.y, value.z]

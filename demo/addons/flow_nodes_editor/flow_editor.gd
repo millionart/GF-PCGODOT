@@ -968,7 +968,9 @@ func _finish_tab_switch(index: int, restored_cached_ui: bool) -> void:
 	ctx.graph = current_resource
 	ctx.owner = resource_owner
 	ctx.gedit_nodes_by_name = gedit_nodes_by_name
-	if not restored_cached_ui:
+	if restored_cached_ui and _current_graph_uses_owner_debug_fixture():
+		_run_forced_graph_eval()
+	elif not restored_cached_ui:
 		markAllNodesAsDirty()
 		queueRegen()
 	populatePopupInputsMenu()
@@ -983,6 +985,24 @@ func _resource_has_serialized_nodes(resource: FlowGraphResource) -> bool:
 		return false
 	var nodes: Array = resource.data.get("nodes", [])
 	return not nodes.is_empty()
+
+func _current_graph_uses_owner_debug_fixture() -> bool:
+	if resource_owner == null or current_resource == null:
+		return false
+	if not resource_owner.has_meta("flow_debug_graph"):
+		return false
+	if not resource_owner.has_meta("flow_debug_input_data_map"):
+		return false
+	return _is_same_graph_resource(resource_owner.get_meta("flow_debug_graph"), current_resource)
+
+func _is_same_graph_resource(left, right) -> bool:
+	if left == right:
+		return true
+	if not (left is FlowGraphResource) or not (right is FlowGraphResource):
+		return false
+	if left.resource_path == "" or right.resource_path == "":
+		return false
+	return left.resource_path == right.resource_path
 
 
 func _prepare_node_types_for_graph_load() -> void:
@@ -2631,6 +2651,9 @@ func _finish_debug_state_batch(prev_auto_regen: bool, changed_nodes: Array) -> v
 func _on_node_display_state_changed(node: FlowNodeBase) -> void:
 	if node == null or node.settings == null:
 		return
+	node.dirty = false
+	regen_pending = false
+	regen_requested_while_running = false
 	if node.has_method("_sync_editor_state_snapshot"):
 		node.call("_sync_editor_state_snapshot")
 	node.refreshEditorDisplayStateFromSettings()
@@ -2659,8 +2682,8 @@ func _try_refresh_debug_draw_from_existing_outputs(nodes: Array) -> bool:
 	return true
 
 func _node_has_debug_drawable_output(node: FlowNodeBase) -> bool:
-	var out_data := _get_selected_output_data(node)
-	return out_data != null and out_data.hasStream(FlowData.AttrPosition)
+	var out_data := _get_selected_output_data(node, true)
+	return out_data != null and out_data.getTransformsStream() != null
 
 func _show_analyze_panel_for_node(node: FlowNodeBase) -> void:
 	data_inspector.setNode(null)
@@ -2672,10 +2695,10 @@ func _show_analyze_panel_for_node(node: FlowNodeBase) -> void:
 func _node_has_output_data(node: FlowNodeBase) -> bool:
 	return _get_selected_output_data(node) != null
 
-func _get_selected_output_data(node: FlowNodeBase) -> FlowData.Data:
+func _get_selected_output_data(node: FlowNodeBase, allow_dirty_outputs: bool = false) -> FlowData.Data:
 	if node == null or node.settings == null:
 		return null
-	if node.dirty:
+	if node.dirty and not allow_dirty_outputs:
 		return null
 	if node.generated_bulks.is_empty():
 		return null

@@ -193,13 +193,22 @@ func _data_fixture_for_input(ctx: FlowData.EvaluationContext, input_name: String
 		return null
 	if not ctx.owner.has_meta("flow_debug_graph") or not ctx.owner.has_meta("flow_debug_input_data_map"):
 		return null
-	if ctx.owner.get_meta("flow_debug_graph") != ctx.graph:
+	if not _is_same_graph_resource(ctx.owner.get_meta("flow_debug_graph"), ctx.graph):
 		return null
 	var data_map: Dictionary = ctx.owner.get_meta("flow_debug_input_data_map")
 	var data_value = data_map.get(input_name, null)
 	if not (data_value is FlowData.Data):
 		return null
 	return _normalize_input_data(data_value, input_name, input_type)
+
+func _is_same_graph_resource(left, right) -> bool:
+	if left == right:
+		return true
+	if not (left is FlowGraphResource) or not (right is FlowGraphResource):
+		return false
+	if left.resource_path == "" or right.resource_path == "":
+		return false
+	return left.resource_path == right.resource_path
 
 func _normalize_input_data(data: FlowData.Data, input_name: String, input_type: FlowData.DataType) -> FlowData.Data:
 	var target := FlowData.Data.new()
