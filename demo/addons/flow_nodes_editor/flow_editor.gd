@@ -2562,8 +2562,8 @@ func _refresh_node_translations() -> void:
 		inspector.refresh_localized_text()
 		_apply_internal_inspector_mode(true)
 
-## Handles debug hotkeys: D (toggle debug), A (toggle inspect), Alt+D (clear all), T (toggle trace).
-## Uses _input so it fires before GraphEdit consumes the key events.
+## Handles node-state hotkeys: D, A, Alt+D, T, and E.
+## Canvas-context hotkeys stay in GraphEdit.gui_input.
 ## Only active when this editor is visible and no text field is focused.
 func _input(event: InputEvent):
 	if not visible or not is_visible_in_tree():
@@ -2583,24 +2583,44 @@ func _input(event: InputEvent):
 	# Only intercept when focus is within this editor's subtree
 	if focused and not is_ancestor_of(focused):
 		return
-	
+
+	if _handle_flow_key_command(key_event):
+		get_viewport().set_input_as_handled()
+
+func _handle_flow_key_command(key_event: InputEventKey) -> bool:
+	if key_event == null or not key_event.pressed or key_event.echo:
+		return false
+	var no_modifiers := (
+		not key_event.ctrl_pressed
+		and not key_event.alt_pressed
+		and not key_event.shift_pressed
+	)
+
 	match key_event.keycode:
 		KEY_D:
-			if key_event.alt_pressed:
+			if (
+				key_event.alt_pressed
+				and not key_event.ctrl_pressed
+				and not key_event.shift_pressed
+			):
 				_hotkey_clear_all_debug()
-			else:
+				return true
+			if no_modifiers:
 				_hotkey_toggle_debug()
-			get_viewport().set_input_as_handled()
+				return true
 		KEY_A:
-			if not key_event.ctrl_pressed:
+			if no_modifiers:
 				_hotkey_toggle_inspect()
-				get_viewport().set_input_as_handled()
+				return true
 		KEY_T:
-			_hotkey_toggle_trace()
-			get_viewport().set_input_as_handled()
+			if no_modifiers:
+				_hotkey_toggle_trace()
+				return true
 		KEY_E:
-			_hotkey_toggle_disabled()
-			get_viewport().set_input_as_handled()
+			if no_modifiers:
+				_hotkey_toggle_disabled()
+				return true
+	return false
 
 ## Returns selected Flow nodes for node-level hotkeys.
 func _get_hotkey_target_nodes() -> Array:
@@ -2830,6 +2850,7 @@ func _hotkey_toggle_trace():
 	var nodes = _get_hotkey_target_nodes()
 	if nodes.is_empty():
 		return
+	var view_state := _capture_graph_view_state()
 	var new_state = not nodes[0].settings.trace if nodes[0].settings else true
 	var names := PackedStringArray()
 	for node in nodes:
@@ -2841,11 +2862,13 @@ func _hotkey_toggle_trace():
 	var state_str = "ON" if new_state else "OFF"
 	update_status_bar("Trace %s: %s" % [state_str, ", ".join(names)])
 	queueRegen()
+	_restore_graph_view_state_after_display_change(view_state)
 
 func _hotkey_toggle_disabled():
 	var nodes = _get_hotkey_target_nodes()
 	if nodes.is_empty():
 		return
+	var view_state := _capture_graph_view_state()
 	var new_state = not nodes[0].settings.disabled if nodes[0].settings else true
 	var names := PackedStringArray()
 	for node in nodes:
@@ -2857,6 +2880,7 @@ func _hotkey_toggle_disabled():
 	var state_str = "DISABLED" if new_state else "ENABLED"
 	update_status_bar("%s: %s" % [state_str, ", ".join(names)])
 	queueRegen()
+	_restore_graph_view_state_after_display_change(view_state)
 
 ## Zooms and scrolls the GraphEdit so all nodes are visible (hotkey: F).
 func _zoom_to_fit():
@@ -3743,14 +3767,6 @@ func _on_graph_edit_gui_input(event):
 		elif key == KEY_C:
 			if no_modifiers:
 				addComment()
-				gedit.accept_event()
-		elif key == KEY_E:
-			if no_modifiers:
-				_hotkey_toggle_disabled()
-				gedit.accept_event()
-		elif key == KEY_T:
-			if no_modifiers:
-				_hotkey_toggle_trace()
 				gedit.accept_event()
 		elif key == KEY_R:
 			if no_modifiers:
