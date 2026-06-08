@@ -2758,7 +2758,7 @@ func _try_refresh_debug_draw_from_existing_outputs(nodes: Array) -> bool:
 		var flow_node := node as FlowNodeBase
 		if flow_node == null or flow_node.settings == null:
 			continue
-		if flow_node.settings.debug_enabled and not _node_has_debug_drawable_output(flow_node):
+		if flow_node.settings.debug_enabled and not _node_has_existing_output_for_display(flow_node):
 			return false
 	for node in nodes:
 		var flow_node := node as FlowNodeBase
@@ -2768,9 +2768,9 @@ func _try_refresh_debug_draw_from_existing_outputs(nodes: Array) -> bool:
 			flow_node.setupDrawDebug()
 	return true
 
-func _node_has_debug_drawable_output(node: FlowNodeBase) -> bool:
+func _node_has_existing_output_for_display(node: FlowNodeBase) -> bool:
 	var out_data := _get_selected_output_data(node, true)
-	return out_data != null and out_data.getTransformsStream() != null
+	return out_data != null
 
 func _show_analyze_panel_for_node(node: FlowNodeBase) -> void:
 	var view_state := _capture_graph_view_state()
@@ -2779,9 +2779,6 @@ func _show_analyze_panel_for_node(node: FlowNodeBase) -> void:
 	_set_analyze_panel_visible(true)
 	current_analyzed_node = node
 	_restore_graph_view_state_after_display_change(view_state)
-
-func _node_has_output_data(node: FlowNodeBase) -> bool:
-	return _get_selected_output_data(node) != null
 
 func _get_selected_output_data(node: FlowNodeBase, allow_dirty_outputs: bool = false) -> FlowData.Data:
 	if node == null or node.settings == null:
@@ -2798,11 +2795,11 @@ func _get_selected_output_data(node: FlowNodeBase, allow_dirty_outputs: bool = f
 	return node.get_bulk_output(bulk_index, port_index)
 
 func _can_show_analyze_from_existing_outputs(node: FlowNodeBase) -> bool:
-	if not _node_has_output_data(node):
-		return false
+	if _node_has_existing_output_for_display(node):
+		return true
 	if node.has_meta(ANALYZE_OUTPUT_READY_META):
 		return true
-	return _node_has_debug_drawable_output(node)
+	return false
 
 func _refresh_analyze_panel_for_node(node: FlowNodeBase, previous_node: FlowNodeBase = null) -> void:
 	_show_analyze_panel_for_node(node)

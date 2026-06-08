@@ -178,11 +178,14 @@ func _debug_input_data_map() -> Dictionary:
 
 func setupDrawDebug() -> void:
 	if settings != null and settings.debug_enabled:
-		if not _debug_bulk_has_point_stream():
-			var editor = getEditor()
-			if not _debug_full_eval_running and not (editor != null and bool(editor.get("regen_running"))):
-				_queue_full_graph_eval_for_debug()
+		if _debug_bulk_has_output_data():
+			super.setupDrawDebug()
+			_align_debug_draw_to_owner()
 			return
+		var editor = getEditor()
+		if not _debug_full_eval_running and not (editor != null and bool(editor.get("regen_running"))):
+			_queue_full_graph_eval_for_debug()
+		return
 	super.setupDrawDebug()
 	_align_debug_draw_to_owner()
 
@@ -256,15 +259,17 @@ func _child_runtime_params() -> Dictionary:
 		return {"debug_enabled": true}
 	return {}
 
-func _debug_bulk_has_point_stream() -> bool:
+func _debug_bulk_has_output_data() -> bool:
+	return _debug_bulk_output_data() != null
+
+func _debug_bulk_output_data() -> FlowData.Data:
 	if generated_bulks.is_empty() or settings == null:
-		return false
+		return null
 	var bulk_index := clampi(settings.debug_bulk, 0, generated_bulks.size() - 1)
 	if generated_bulks[bulk_index].is_empty():
-		return false
+		return null
 	var port_index := clampi(settings.debug_output, 0, generated_bulks[bulk_index].size() - 1)
-	var out_data: FlowData.Data = get_bulk_output(bulk_index, port_index)
-	return out_data != null and out_data.getTransformsStream() != null
+	return get_bulk_output(bulk_index, port_index)
 
 func _queue_full_graph_eval_for_debug() -> void:
 	if _debug_full_eval_queued:
@@ -276,7 +281,7 @@ func _run_full_graph_eval_for_debug() -> void:
 	_debug_full_eval_queued = false
 	if settings == null or not settings.debug_enabled:
 		return
-	if _debug_bulk_has_point_stream():
+	if _debug_bulk_has_output_data():
 		super.setupDrawDebug()
 		_align_debug_draw_to_owner()
 		return
@@ -295,7 +300,7 @@ func _run_full_graph_eval_for_debug() -> void:
 		if editor.has_method(&"evalGraph"):
 			editor.call(&"evalGraph")
 	_debug_full_eval_running = false
-	if _debug_bulk_has_point_stream():
+	if _debug_bulk_has_output_data():
 		super.setupDrawDebug()
 		_align_debug_draw_to_owner()
 
