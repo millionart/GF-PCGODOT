@@ -2614,8 +2614,10 @@ func _refresh_inspector_if_showing_nodes(nodes: Array):
 	for node in nodes:
 		if not is_instance_valid(node) or not (node is FlowNodeBase):
 			continue
-		if inspected_node == node or native_inspector_target == node or native_inspector_target == node.settings:
-			_inspect_graph_element(node)
+		var native_visible: bool = native_inspector_target == node or native_inspector_target == node.settings
+		if native_visible:
+			var native_target: Object = node.settings if node.settings != null else node
+			_inspect_in_native(native_target)
 			return
 
 func _begin_debug_state_batch() -> bool:
@@ -2623,43 +2625,108 @@ func _begin_debug_state_batch() -> bool:
 	auto_regen = false
 	return prev_auto_regen
 
-func _set_node_debug_enabled(
-	node: Node,
-	debug_enabled: bool,
+func _capture_graph_view_state() -> Dictionary:
+	if gedit == null:
+		return {}
+	return {
+		"zoom": gedit.zoom,
+		"scroll_offset": gedit.scroll_offset,
+	}
+
+func _restore_graph_view_state(view_state: Dictionary) -> void:
+	if view_state.is_empty() or gedit == null:
+		return
+	gedit.zoom = float(view_state.get("zoom", gedit.zoom))
+	gedit.scroll_offset = view_state.get("scroll_offset", gedit.scroll_offset)
+
+func _restore_graph_view_state_after_display_change(view_state: Dictionary) -> void:
+	_restore_graph_view_state(view_state)
+	if not view_state.is_empty():
+		call_deferred("_restore_graph_view_state_deferred", view_state, 4)
+
+func _restore_graph_view_state_deferred(view_state: Dictionary, remaining_frames: int) -> void:
+	_restore_graph_view_state(view_state)
+	if not view_state.is_empty() and remaining_frames > 0:
+		call_deferred("_restore_graph_view_state_deferred", view_state, remaining_frames - 1)
+
+func _apply_node_display_state_changed(
+	node: FlowNodeBase,
 	changed_nodes: Array,
-	names: PackedStringArray = PackedStringArray()
+	names: PackedStringArray,
+	evaluate_debug: bool
 ) -> void:
-	var flow_node := node as FlowNodeBase
-	if flow_node == null or flow_node.settings == null:
-		return
-	flow_node.settings.debug_enabled = debug_enabled
-	if flow_node.has_method("_sync_editor_state_snapshot"):
-		flow_node.call("_sync_editor_state_snapshot")
-	flow_node.refreshEditorDisplayStateFromSettings()
-	changed_nodes.append(flow_node)
-	names.append(flow_node.settings.title)
-
-func _finish_debug_state_batch(prev_auto_regen: bool, changed_nodes: Array) -> void:
-	auto_regen = prev_auto_regen
-	if changed_nodes.is_empty():
-		return
-	if _try_refresh_debug_draw_from_existing_outputs(changed_nodes):
-		return
-	_run_forced_graph_eval()
-	_try_refresh_debug_draw_from_existing_outputs(changed_nodes)
-
-func _on_node_display_state_changed(node: FlowNodeBase) -> void:
 	if node == null or node.settings == null:
 		return
+	var view_state := _capture_graph_view_state()
 	node.dirty = false
 	regen_pending = false
 	regen_requested_while_running = false
 	if node.has_method("_sync_editor_state_snapshot"):
 		node.call("_sync_editor_state_snapshot")
 	node.refreshEditorDisplayStateFromSettings()
-	if node.settings.debug_enabled:
+	if not changed_nodes.has(node):
+		changed_nodes.append(node)
+	if names != null:
+		names.append(node.settings.title)
+	if evaluate_debug and node.settings.debug_enabled:
 		var prev_auto_regen := _begin_debug_state_batch()
 		_finish_debug_state_batch(prev_auto_regen, [node])
+	_restore_graph_view_state_after_display_change(view_state)
+
+func _set_node_display_state_property(
+	node: Node,
+	prop_name: String,
+	enabled: bool,
+	changed_nodes: Array,
+	names: PackedStringArray = PackedStringArray(),
+	evaluate_debug: bool = true
+) -> bool:
+	var flow_node := node as FlowNodeBase
+	if flow_node == null or flow_node.settings == null:
+		return false
+	var previous_enabled := false
+	match prop_name:
+		"debug_enabled":
+			previous_enabled = flow_node.settings.debug_enabled
+			flow_node.settings.debug_enabled = enabled
+		"inspect_enabled":
+			previous_enabled = flow_node.settings.inspect_enabled
+			flow_node.settings.inspect_enabled = enabled
+		_:
+			return false
+	_apply_node_display_state_changed(flow_node, changed_nodes, names, evaluate_debug)
+	return previous_enabled != enabled
+
+func _set_node_debug_enabled(
+	node: Node,
+	debug_enabled: bool,
+	changed_nodes: Array,
+	names: PackedStringArray = PackedStringArray()
+) -> void:
+	_set_node_display_state_property(node, "debug_enabled", debug_enabled, changed_nodes, names, false)
+
+func _set_node_inspect_enabled(node: Node, inspect_enabled: bool) -> bool:
+	var changed_nodes := []
+	return _set_node_display_state_property(node, "inspect_enabled", inspect_enabled, changed_nodes)
+
+func _finish_debug_state_batch(prev_auto_regen: bool, changed_nodes: Array) -> void:
+	var view_state := _capture_graph_view_state()
+	auto_regen = prev_auto_regen
+	if changed_nodes.is_empty():
+		_restore_graph_view_state_after_display_change(view_state)
+		return
+	if _try_refresh_debug_draw_from_existing_outputs(changed_nodes):
+		_restore_graph_view_state_after_display_change(view_state)
+		return
+	_run_forced_graph_eval()
+	_try_refresh_debug_draw_from_existing_outputs(changed_nodes)
+	_restore_graph_view_state_after_display_change(view_state)
+
+func _on_node_display_state_changed(node: FlowNodeBase) -> void:
+	if node == null or node.settings == null:
+		return
+	var changed_nodes := []
+	_apply_node_display_state_changed(node, changed_nodes, PackedStringArray(), true)
 
 func _on_node_debug_setting_changed(node: FlowNodeBase) -> void:
 	_on_node_display_state_changed(node)
@@ -2686,11 +2753,12 @@ func _node_has_debug_drawable_output(node: FlowNodeBase) -> bool:
 	return out_data != null and out_data.getTransformsStream() != null
 
 func _show_analyze_panel_for_node(node: FlowNodeBase) -> void:
-	data_inspector.setNode(null)
+	var view_state := _capture_graph_view_state()
 	data_inspector.setNode(node)
 	node.refreshEditorDisplayStateFromSettings()
 	_set_analyze_panel_visible(true)
 	current_analyzed_node = node
+	_restore_graph_view_state_after_display_change(view_state)
 
 func _node_has_output_data(node: FlowNodeBase) -> bool:
 	return _get_selected_output_data(node) != null
@@ -2729,15 +2797,17 @@ func _hotkey_toggle_debug():
 		return
 	# Toggle based on first node's current state
 	var new_state = not nodes[0].settings.debug_enabled if nodes[0].settings else true
-	var prev_auto_regen := _begin_debug_state_batch()
 	var names := PackedStringArray()
 	var changed_nodes := []
-	for node in nodes:
-		_set_node_debug_enabled(node, new_state, changed_nodes, names)
-	_finish_debug_state_batch(prev_auto_regen, changed_nodes)
+	if nodes.size() == 1:
+		_set_node_display_state_property(nodes[0], "debug_enabled", new_state, changed_nodes, names, true)
+	else:
+		var prev_auto_regen := _begin_debug_state_batch()
+		for node in nodes:
+			_set_node_debug_enabled(node, new_state, changed_nodes, names)
+		_finish_debug_state_batch(prev_auto_regen, changed_nodes)
 	var state_str = "ON" if new_state else "OFF"
 	update_status_bar("Debug %s: %s" % [state_str, ", ".join(names)])
-	_refresh_inspector_if_showing_nodes(changed_nodes)
 
 func _hotkey_clear_all_debug():
 	var count := 0
@@ -2750,7 +2820,6 @@ func _hotkey_clear_all_debug():
 			count += 1
 	_finish_debug_state_batch(prev_auto_regen, changed_nodes)
 	update_status_bar("Debug cleared on %d nodes" % count)
-	_refresh_inspector_if_showing_nodes(changed_nodes)
 
 func _hotkey_toggle_inspect():
 	if _get_hotkey_target_nodes().is_empty():
@@ -2997,11 +3066,13 @@ func _setup_analyze_resize_handle(panel: Control):
 func _set_analyze_panel_visible(visible: bool):
 	if not analyze_panel:
 		return
+	var view_state := _capture_graph_view_state()
 	analyze_panel.visible = visible
 	if visible:
 		analyze_panel.move_to_front()
 	else:
 		current_analyzed_node = null
+	_restore_graph_view_state_after_display_change(view_state)
 
 func _mark_status_counts_dirty() -> void:
 	status_counts_dirty = true
@@ -3669,9 +3740,6 @@ func _on_graph_edit_gui_input(event):
 			if evt_key.shift_pressed:
 				openAddMenu()
 				gedit.accept_event()
-			elif no_modifiers:
-				_hotkey_toggle_inspect()
-				gedit.accept_event()
 		elif key == KEY_C:
 			if no_modifiers:
 				addComment()
@@ -3679,10 +3747,6 @@ func _on_graph_edit_gui_input(event):
 		elif key == KEY_E:
 			if no_modifiers:
 				_hotkey_toggle_disabled()
-				gedit.accept_event()
-		elif key == KEY_D:
-			if no_modifiers:
-				_hotkey_toggle_debug()
 				gedit.accept_event()
 		elif key == KEY_T:
 			if no_modifiers:

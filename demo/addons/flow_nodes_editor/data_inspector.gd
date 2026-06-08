@@ -34,25 +34,29 @@ var _flow_editor: FlowEditor
 func set_flow_editor(editor: FlowEditor) -> void:
 	_flow_editor = editor
 
+func _set_node_inspect_enabled(target_node: FlowNodeBase, enabled: bool) -> void:
+	if target_node == null or target_node.settings == null:
+		return
+	if _flow_editor != null and is_instance_valid(_flow_editor) and _flow_editor.has_method("_set_node_inspect_enabled"):
+		_flow_editor.call("_set_node_inspect_enabled", target_node, enabled)
+		return
+	target_node.settings.inspect_enabled = enabled
+	if target_node.has_method("_sync_editor_state_snapshot"):
+		target_node.call("_sync_editor_state_snapshot")
+	target_node.refreshEditorDisplayStateFromSettings()
+
 func setNode( new_node : FlowNodeBase ):
 	# If there was already one active... disabled it
-	if node:
+	if node and node != new_node:
 		%LabelTitle.text = "..."
-		if node.settings:
-			node.settings.inspect_enabled = false
-			if node.has_method("_sync_editor_state_snapshot"):
-				node.call("_sync_editor_state_snapshot")
-			node.refreshEditorDisplayStateFromSettings()
+		_set_node_inspect_enabled(node, false)
 		
-	if node != new_node and new_node:
+	if new_node:
 		if new_node.has_method("getLocalizedTitle"):
 			%LabelTitle.text = new_node.getLocalizedTitle()
 		else:
 			%LabelTitle.text = new_node.get_title()
-		new_node.settings.inspect_enabled = true
-		if new_node.has_method("_sync_editor_state_snapshot"):
-			new_node.call("_sync_editor_state_snapshot")
-		new_node.refreshEditorDisplayStateFromSettings()
+		_set_node_inspect_enabled(new_node, true)
 		current_bulk_index = new_node.settings.debug_bulk
 		node = new_node
 		node.setupDrawDebug()
