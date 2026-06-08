@@ -6,9 +6,16 @@ class_name FlowNodeIO
 
 const LOAD_PROGRESS_CHUNK_SIZE := 8
 const FAST_GRAPH_LOAD_NODE_THRESHOLD := 24
-const TRANSIENT_SETTINGS_PROPS := {
+const TEMPLATE_TRANSIENT_SETTINGS_PROPS := {
 	"debug_enabled": true,
 	"inspect_enabled": true,
+	"debug_mode": true,
+	"debug_scale": true,
+	"debug_bulk": true,
+	"debug_output": true,
+	"debug_color": true,
+	"debug_modulate_by": true,
+	"trace": true,
 }
 
 static func _is_metadata_property(property_name: String) -> bool:
@@ -35,7 +42,7 @@ static func fresh_graph_for_evaluation(graph: FlowGraphResource) -> FlowGraphRes
 		return fresh
 	return graph
 
-static func resource_to_dict(resource: Resource) -> Dictionary:
+static func resource_to_dict(resource: Resource, include_template_transients := true) -> Dictionary:
 	var dict := {}
 	for prop in resource.get_property_list():
 		var name := String(prop.name)
@@ -43,7 +50,7 @@ static func resource_to_dict(resource: Resource) -> Dictionary:
 			continue
 		if name in FlowNodeAssets.discardted_props:
 			continue
-		if TRANSIENT_SETTINGS_PROPS.has(name):
+		if not include_template_transients and TEMPLATE_TRANSIENT_SETTINGS_PROPS.has(name):
 			continue
 		if prop.usage & PROPERTY_USAGE_STORAGE != 0:
 			dict[name] = resource.get(name)
@@ -77,14 +84,14 @@ static  func _parse_vector3(value) -> Vector3:
 		return Vector3(parts[0], parts[1], parts[2])
 	return value
 
-static func dict_to_resource(data: Dictionary, resource: Resource) -> void:
+static func dict_to_resource(data: Dictionary, resource: Resource, include_template_transients := true) -> void:
 	for prop in resource.get_property_list():
 		var name := String(prop.name)
 		if _is_metadata_property(name):
 			continue
 		if name in FlowNodeAssets.discardted_props:
 			continue
-		if TRANSIENT_SETTINGS_PROPS.has(String(name)):
+		if not include_template_transients and TEMPLATE_TRANSIENT_SETTINGS_PROPS.has(String(name)):
 			continue
 		if not data.has(name):
 			continue
@@ -168,7 +175,7 @@ static func _normalize_loaded_node_template(node, editor: Control) -> void:
 	if editor.has_method("normalizeDynamicNodeTemplate"):
 		editor.normalizeDynamicNodeTemplate(node)
 
-static func nodes_as_dict( nodes, frames, editor : Control ):
+static func nodes_as_dict( nodes, frames, editor : Control, include_template_transients := true ):
 	var exported_node_names = {}
 	
 	# Find the top-left coord of all nodes
@@ -184,14 +191,16 @@ static func nodes_as_dict( nodes, frames, editor : Control ):
 	var nodes_clean = nodes.map( func( node ):
 		exported_node_names[ node.name ] = 1
 		
-		return {
+		var node_data := {
 			"position" : ( node.position_offset - min_pos ) / editor.ui_scale,
 			"name" : node.name,
 			"template" : _serialized_node_template(node),
-			"show_disconnected_inputs" : node.show_disconnected_inputs,
 			"args_port" : _serialize_args_ports(node, editor),
-			"settings" : resource_to_dict( node.settings ),
+			"settings" : resource_to_dict( node.settings, include_template_transients ),
 		}
+		if include_template_transients:
+			node_data["show_disconnected_inputs"] = node.show_disconnected_inputs
+		return node_data
 	)
 	
 	var links = []
@@ -260,7 +269,7 @@ static func _remap_get_variable_names(nodes: Array, variable_name_remaps: Dictio
 		node.settings.variable_name = variable_name_remaps[variable_name]
 		node.refreshFromSettings()
 
-static func create_nodes_from_dict( dict, editor : Control, paste_offset = null):		
+static func create_nodes_from_dict( dict, editor : Control, paste_offset = null, include_template_transients := true):		
 	if dict.get( "type", null) != "flow_graph_nodes":
 		push_error( "Invalid dict to paste nodes from" )
 		return []
@@ -282,12 +291,12 @@ static func create_nodes_from_dict( dict, editor : Control, paste_offset = null)
 		node.args_ports_by_name = in_node.get("args_port", {})
 		
 		# Apply saved settings...
-		dict_to_resource( in_node.settings, node.settings )
+		dict_to_resource( in_node.settings, node.settings, include_template_transients )
 		_normalize_loaded_node_template(node, editor)
 		_ensure_unique_set_variable_name(node, editor, variable_name_remaps)
 		
-		# Never inport the inspect_enabled
-		node.settings.inspect_enabled = false
+		if not include_template_transients:
+			node.settings.inspect_enabled = false
 		if node.has_method("_sync_editor_state_snapshot"):
 			node.call("_sync_editor_state_snapshot")
 		
@@ -334,14 +343,14 @@ static func create_nodes_from_dict( dict, editor : Control, paste_offset = null)
 		editor.repair_graph_integrity()
 	return new_nodes
 
-static func create_nodes_from_dict_with_progress(dict, editor: Control, paste_offset = null, progress_callback: Callable = Callable(), start_progress := 45.0, end_progress := 92.0) -> Array:
+static func create_nodes_from_dict_with_progress(dict, editor: Control, paste_offset = null, progress_callback: Callable = Callable(), start_progress := 45.0, end_progress := 92.0, include_template_transients := true) -> Array:
 	if dict.get("type", null) != "flow_graph_nodes":
 		push_error("Invalid dict to paste nodes from")
 		return []
 
 	var source_nodes: Array = dict.get("nodes", [])
 	if source_nodes.size() <= FAST_GRAPH_LOAD_NODE_THRESHOLD:
-		return create_nodes_from_dict(dict, editor, paste_offset)
+		return create_nodes_from_dict(dict, editor, paste_offset, include_template_transients)
 	var source_links: Array = dict.get("links", [])
 	var source_frames: Array = dict.get("frames", [])
 	var total_steps = maxi(source_nodes.size() * 4 + source_links.size() + source_frames.size(), 1)
@@ -372,10 +381,11 @@ static func create_nodes_from_dict_with_progress(dict, editor: Control, paste_of
 		if _should_report_load_progress(completed_steps, total_steps):
 			await _report_load_progress(progress_callback, "Building Graph...", completed_steps, total_steps, start_progress, end_progress)
 
-		dict_to_resource(in_node.settings, node.settings)
+		dict_to_resource(in_node.settings, node.settings, include_template_transients)
 		_normalize_loaded_node_template(node, editor)
 		_ensure_unique_set_variable_name(node, editor, variable_name_remaps)
-		node.settings.inspect_enabled = false
+		if not include_template_transients:
+			node.settings.inspect_enabled = false
 		if node.has_method("_sync_editor_state_snapshot"):
 			node.call("_sync_editor_state_snapshot")
 
@@ -496,10 +506,23 @@ static func saveToResource( editor : Control ):
 	var all_frames = gedit.get_children().filter( func( n ):
 		return n is GraphFrame and not n.has_meta("flow_retired")
 	)
-	current_resource.data = nodes_as_dict( all_nodes, all_frames, editor )
+	current_resource.data = nodes_as_dict( all_nodes, all_frames, editor, false )
 	current_resource.view_zoom = gedit.zoom
 	current_resource.view_offset = gedit.scroll_offset
 	current_resource.new_name_counter = editor.new_name_counter
+
+static func save_template_resource(resource: FlowGraphResource, path: String) -> int:
+	var previous_view_zoom := resource.view_zoom
+	var previous_view_offset := resource.view_offset
+	var previous_new_name_counter := resource.new_name_counter
+	resource.view_zoom = 1.0
+	resource.view_offset = Vector2.ZERO
+	resource.new_name_counter = 0
+	var err := ResourceSaver.save(resource, path)
+	resource.view_zoom = previous_view_zoom
+	resource.view_offset = previous_view_offset
+	resource.new_name_counter = previous_new_name_counter
+	return err
 
 static func loadFromResource( editor : Control ):
 	var current_resource = editor.current_resource
@@ -515,11 +538,11 @@ static func loadFromResource( editor : Control ):
 		
 	if current_resource.data and not current_resource.data.is_empty():
 		var paste_offset = _parse_vector2( current_resource.data.min_pos )
-		create_nodes_from_dict( current_resource.data, editor, paste_offset )
+		create_nodes_from_dict( current_resource.data, editor, paste_offset, false )
 		
 	editor.gedit.zoom = current_resource.view_zoom
 	editor.gedit.scroll_offset = current_resource.view_offset
-	editor.new_name_counter = current_resource.new_name_counter
+	editor.new_name_counter = maxi(current_resource.new_name_counter, _max_node_name_counter(current_resource.data))
 	editor.data_inspector.setNode( null )
 	if editor.has_method("repair_graph_integrity"):
 		editor.repair_graph_integrity()
@@ -542,12 +565,12 @@ static func loadFromResourceWithProgress(editor: Control, progress_callback: Cal
 
 	if current_resource.data and not current_resource.data.is_empty():
 		var paste_offset = _parse_vector2(current_resource.data.min_pos)
-		await create_nodes_from_dict_with_progress(current_resource.data, editor, paste_offset, progress_callback, 48.0, 90.0)
+		await create_nodes_from_dict_with_progress(current_resource.data, editor, paste_offset, progress_callback, 48.0, 90.0, false)
 
 	await _call_load_progress(progress_callback, "Restoring View...", 92.0)
 	editor.gedit.zoom = current_resource.view_zoom
 	editor.gedit.scroll_offset = current_resource.view_offset
-	editor.new_name_counter = current_resource.new_name_counter
+	editor.new_name_counter = maxi(current_resource.new_name_counter, _max_node_name_counter(current_resource.data))
 	editor.data_inspector.setNode(null)
 	if editor.has_method("repair_graph_integrity"):
 		editor.repair_graph_integrity()
@@ -559,6 +582,21 @@ static func _should_report_load_progress(completed_steps: int, total_steps: int)
 		return false
 	var chunk := maxi(total_steps / 20, LOAD_PROGRESS_CHUNK_SIZE)
 	return completed_steps % chunk == 0
+
+static func _max_node_name_counter(data: Dictionary) -> int:
+	var max_counter := 0
+	for node_data in data.get("nodes", []):
+		var node_name := String(node_data.get("name", ""))
+		if not node_name.begins_with("id_"):
+			continue
+		var suffix_start := node_name.find("_", 3)
+		if suffix_start <= 3:
+			continue
+		var counter_text := node_name.substr(3, suffix_start - 3)
+		if not counter_text.is_valid_int():
+			continue
+		max_counter = maxi(max_counter, counter_text.to_int())
+	return max_counter
 
 static func _report_load_progress(progress_callback: Callable, message: String, completed_steps: int, total_steps: int, start_progress: float, end_progress: float) -> void:
 	var ratio := float(completed_steps) / float(maxi(total_steps, 1))
@@ -797,7 +835,7 @@ static func evaluate_graph(graph: FlowGraphResource, input_data_map: Dictionary,
 			instance.settings = meta.settings.new()
 		
 		# Apply saved settings
-		dict_to_resource(n_data.settings, instance.settings)
+		dict_to_resource(n_data.settings, instance.settings, false)
 		_stabilize_missing_seed(instance.settings, name, template, n_data.settings)
 		if instance.settings != null:
 			instance.settings.inspect_enabled = false

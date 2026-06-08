@@ -1555,7 +1555,7 @@ func _save_current_resource_to_path(path: String) -> bool:
 	var save_path := path
 	if save_path.get_extension().is_empty():
 		save_path += ".tres"
-	var err := ResourceSaver.save(current_resource, save_path)
+	var err := FlowNodeIO.save_template_resource(current_resource, save_path)
 	if err == OK:
 		current_resource.take_over_path(save_path)
 		last_graph_open_dir = save_path.get_base_dir()
@@ -4427,7 +4427,7 @@ func collapse_selected_to_subgraph():
 	avg_pos /= selected_nodes.size()
 	
 	# Serialize selected nodes relative to min_pos
-	var subgraph_data = FlowNodeIO.nodes_as_dict(selected_nodes, [], self)
+	var subgraph_data = FlowNodeIO.nodes_as_dict(selected_nodes, [], self, false)
 	var parsed_min_pos = FlowNodeIO._parse_vector2(subgraph_data.get("min_pos", Vector2.ZERO))
 	
 	var links_clean = []
@@ -4468,7 +4468,6 @@ func collapse_selected_to_subgraph():
 			"position": Vector2(-250.0, input_idx * 150.0),
 			"name": input_node_name,
 			"template": "input_" + param_name,
-			"show_disconnected_inputs": false,
 			"args_port": {},
 			"settings": {
 				"name": param_name,
@@ -4506,7 +4505,6 @@ func collapse_selected_to_subgraph():
 			"position": Vector2((max_pos.x - parsed_min_pos.x) + 100.0, output_idx * 150.0),
 			"name": output_node_name,
 			"template": "output",
-			"show_disconnected_inputs": false,
 			"args_port": {},
 			"settings": {
 				"name": out_name,
@@ -4544,7 +4542,7 @@ func collapse_selected_to_subgraph():
 	subgraph_res.data = subgraph_data
 	subgraph_res.in_params = subgraph_in_params
 	subgraph_res.out_params = subgraph_out_params
-	var save_err = ResourceSaver.save(subgraph_res, path)
+	var save_err = FlowNodeIO.save_template_resource(subgraph_res, path)
 	if save_err != OK:
 		push_error("Failed to save collapsed subgraph to %s" % path)
 		return
@@ -4910,7 +4908,7 @@ func ensure_missing_resource_nodes_loaded() -> int:
 		node.position_offset = (in_pos + paste_offset) * ui_scale
 		node.show_disconnected_inputs = in_node.get("show_disconnected_inputs", false)
 		node.args_ports_by_name = in_node.get("args_port", {})
-		FlowNodeIO.dict_to_resource(in_node.get("settings", {}), node.settings)
+		FlowNodeIO.dict_to_resource(in_node.get("settings", {}), node.settings, false)
 		FlowNodeIO._normalize_loaded_node_template(node, self)
 		FlowNodeIO._ensure_unique_set_variable_name(node, self, {})
 		node.settings.inspect_enabled = false

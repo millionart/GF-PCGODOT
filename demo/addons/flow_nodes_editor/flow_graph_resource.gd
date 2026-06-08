@@ -17,11 +17,11 @@ var _in_params_changed_queued_connections := 0
 		return data
 
 # Visualization params
-@export var view_zoom : float = 1.0
-@export var view_offset : Vector2 = Vector2(0,0)
+var view_zoom : float = 1.0
+var view_offset : Vector2 = Vector2(0,0)
 
 # To always generate unique name ids for each node
-@export var new_name_counter : int = 0
+var new_name_counter : int = 0
 
 @export var in_params : Array[GraphInputParameter] = []:
 	set(value):
