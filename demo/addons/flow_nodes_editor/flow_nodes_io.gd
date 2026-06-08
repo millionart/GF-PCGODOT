@@ -1,11 +1,12 @@
 extends Node
 class_name FlowNodeIO
 
-# Here are all functions related to read/write the resources, including 
+# Here are all functions related to read/write the resources, including
 # serialization to/from json for the clipboard
 
 const LOAD_PROGRESS_CHUNK_SIZE := 8
 const FAST_GRAPH_LOAD_NODE_THRESHOLD := 24
+const TEMPLATE_VECTOR_EPSILON := 0.1
 const TEMPLATE_TRANSIENT_SETTINGS_PROPS := {
 	"debug_enabled": true,
 	"inspect_enabled": true,
@@ -17,6 +18,85 @@ const TEMPLATE_TRANSIENT_SETTINGS_PROPS := {
 	"debug_modulate_by": true,
 	"trace": true,
 }
+
+static func _name_order_from_data(data: Dictionary, key: String) -> Dictionary:
+	var order := {}
+	var items = data.get(key, [])
+	if typeof(items) != TYPE_ARRAY:
+		return order
+	var index := 0
+	for item in items:
+		if typeof(item) != TYPE_DICTIONARY:
+			continue
+		var name := String(item.get("name", ""))
+		if not name.is_empty() and not order.has(name):
+			order[name] = index
+		index += 1
+	return order
+
+static func _items_by_name_from_data(data: Dictionary, key: String) -> Dictionary:
+	var by_name := {}
+	var items = data.get(key, [])
+	if typeof(items) != TYPE_ARRAY:
+		return by_name
+	for item in items:
+		if typeof(item) != TYPE_DICTIONARY:
+			continue
+		var name := String(item.get("name", ""))
+		if not name.is_empty():
+			by_name[name] = item
+	return by_name
+
+static func _link_key(link) -> String:
+	if typeof(link) != TYPE_DICTIONARY:
+		return ""
+	return "%s:%d>%s:%d" % [
+		String(link.get("from_node", "")),
+		int(link.get("from_port", -1)),
+		String(link.get("to_node", "")),
+		int(link.get("to_port", -1)),
+	]
+
+static func _link_order_from_data(data: Dictionary) -> Dictionary:
+	var order := {}
+	var links = data.get("links", [])
+	if typeof(links) != TYPE_ARRAY:
+		return order
+	var index := 0
+	for link in links:
+		var key := _link_key(link)
+		if not key.is_empty() and not order.has(key):
+			order[key] = index
+		index += 1
+	return order
+
+static func _ordered_name_key(item, order: Dictionary) -> String:
+	if typeof(item) != TYPE_DICTIONARY:
+		return "9999999999:"
+	var name := String(item.get("name", ""))
+	if order.has(name):
+		return "%010d:%s" % [int(order[name]), name]
+	return "9999999999:%s" % name
+
+static func _ordered_link_key(link, order: Dictionary) -> String:
+	var key := _link_key(link)
+	if order.has(key):
+		return "%010d:%s" % [int(order[key]), key]
+	return "9999999999:%s" % key
+
+static func _is_close_vector2(a, b) -> bool:
+	var va := _parse_vector2(a)
+	var vb := _parse_vector2(b)
+	return (
+		absf(va.x - vb.x) <= TEMPLATE_VECTOR_EPSILON
+		and absf(va.y - vb.y) <= TEMPLATE_VECTOR_EPSILON
+	)
+
+static func _preserve_close_vector2_property(current: Dictionary, previous: Dictionary, key: String) -> void:
+	if not current.has(key) or not previous.has(key):
+		return
+	if _is_close_vector2(current[key], previous[key]):
+		current[key] = previous[key]
 
 static func _is_metadata_property(property_name: String) -> bool:
 	return property_name.begins_with("metadata/")
@@ -55,7 +135,7 @@ static func resource_to_dict(resource: Resource, include_template_transients := 
 		if prop.usage & PROPERTY_USAGE_STORAGE != 0:
 			dict[name] = resource.get(name)
 	return dict
-	
+
 static func split_floats(in_str : String) -> Array:
 	var parts = in_str.lstrip("(").rstrip(")").split(",")
 	var vfloats = []
@@ -175,9 +255,9 @@ static func _normalize_loaded_node_template(node, editor: Control) -> void:
 	if editor.has_method("normalizeDynamicNodeTemplate"):
 		editor.normalizeDynamicNodeTemplate(node)
 
-static func nodes_as_dict( nodes, frames, editor : Control, include_template_transients := true ):
+static func nodes_as_dict( nodes, frames, editor : Control, include_template_transients := true, previous_data: Dictionary = {} ) -> Dictionary:
 	var exported_node_names = {}
-	
+
 	# Find the top-left coord of all nodes
 	var min_pos = null
 	for node in nodes:
@@ -187,10 +267,10 @@ static func nodes_as_dict( nodes, frames, editor : Control, include_template_tra
 		else:
 			min_pos.x = minf( min_pos.x, pos.x )
 			min_pos.y = minf( min_pos.y, pos.y )
-	
+
 	var nodes_clean = nodes.map( func( node ):
 		exported_node_names[ node.name ] = 1
-		
+
 		var node_data := {
 			"position" : ( node.position_offset - min_pos ) / editor.ui_scale,
 			"name" : node.name,
@@ -202,12 +282,29 @@ static func nodes_as_dict( nodes, frames, editor : Control, include_template_tra
 			node_data["show_disconnected_inputs"] = node.show_disconnected_inputs
 		return node_data
 	)
-	
+	if not include_template_transients:
+		var previous_nodes := _items_by_name_from_data(previous_data, "nodes")
+		for node_data in nodes_clean:
+			var previous_node = previous_nodes.get(String(node_data.get("name", "")), {})
+			if typeof(previous_node) == TYPE_DICTIONARY:
+				_preserve_close_vector2_property(node_data, previous_node, "position")
+		var node_order := _name_order_from_data(previous_data, "nodes")
+		if not node_order.is_empty():
+			nodes_clean.sort_custom(func(a, b):
+				return _ordered_name_key(a, node_order) < _ordered_name_key(b, node_order)
+			)
+
 	var links = []
 	for connection in editor.gedit.connections:
 		if connection.from_node in exported_node_names and connection.to_node in exported_node_names:
 			links.append( connection )
-			
+	if not include_template_transients:
+		var link_order := _link_order_from_data(previous_data)
+		if not link_order.is_empty():
+			links.sort_custom(func(a, b):
+				return _ordered_link_key(a, link_order) < _ordered_link_key(b, link_order)
+			)
+
 	var frames_clean = frames.map( func( node ):
 		var attached : Array[StringName] = editor.gedit.get_attached_nodes_of_frame(node.name)
 		return {
@@ -218,8 +315,22 @@ static func nodes_as_dict( nodes, frames, editor : Control, include_template_tra
 			"title" : node.title,
 			"attached" : attached,
 		}
-	)		
-			
+	)
+	if not include_template_transients:
+		var previous_frames := _items_by_name_from_data(previous_data, "frames")
+		for frame_data in frames_clean:
+			var previous_frame = previous_frames.get(String(frame_data.get("name", "")), {})
+			if typeof(previous_frame) == TYPE_DICTIONARY:
+				_preserve_close_vector2_property(frame_data, previous_frame, "position")
+				_preserve_close_vector2_property(frame_data, previous_frame, "size")
+		var frame_order := _name_order_from_data(previous_data, "frames")
+		if not frame_order.is_empty():
+			frames_clean.sort_custom(func(a, b):
+				return _ordered_name_key(a, frame_order) < _ordered_name_key(b, frame_order)
+			)
+	if not include_template_transients and previous_data.has("min_pos") and _is_close_vector2(min_pos, previous_data.min_pos):
+		min_pos = previous_data.min_pos
+
 	var data := {
 		"type" : "flow_graph_nodes",
 		"version" : 1,
@@ -238,9 +349,9 @@ static func _paste_nodes_from_dict( dict, editor : Control, at_graph_coords = nu
 	var graph_coords : Vector2 = editor.localToGraphCoords( mouse_pos )
 	if at_graph_coords:
 		graph_coords = at_graph_coords
-		
+
 	var new_nodes = create_nodes_from_dict( dict, editor, graph_coords )
-	
+
 	# Update selection
 	for node in editor.getSelectedNodes():
 		node.selected = false
@@ -269,7 +380,7 @@ static func _remap_get_variable_names(nodes: Array, variable_name_remaps: Dictio
 		node.settings.variable_name = variable_name_remaps[variable_name]
 		node.refreshFromSettings()
 
-static func create_nodes_from_dict( dict, editor : Control, paste_offset = null, include_template_transients := true):		
+static func create_nodes_from_dict( dict, editor : Control, paste_offset = null, include_template_transients := true):
 	if dict.get( "type", null) != "flow_graph_nodes":
 		push_error( "Invalid dict to paste nodes from" )
 		return []
@@ -289,25 +400,25 @@ static func create_nodes_from_dict( dict, editor : Control, paste_offset = null,
 		node.position_offset = ( in_pos + paste_offset ) * editor.ui_scale
 		node.show_disconnected_inputs = in_node.get("show_disconnected_inputs", false)
 		node.args_ports_by_name = in_node.get("args_port", {})
-		
+
 		# Apply saved settings...
 		dict_to_resource( in_node.settings, node.settings, include_template_transients )
 		_normalize_loaded_node_template(node, editor)
 		_ensure_unique_set_variable_name(node, editor, variable_name_remaps)
-		
+
 		if not include_template_transients:
 			node.settings.inspect_enabled = false
 		if node.has_method("_sync_editor_state_snapshot"):
 			node.call("_sync_editor_state_snapshot")
-		
+
 		node.initFromScript();
-		
+
 		node.refreshFromSettings()
-		
+
 		# Update relation old -> new for the links
 		old_to_new_names[ in_name ] = new_name
 		new_nodes.append( node )
-		
+
 	_remap_get_variable_names(new_nodes, variable_name_remaps)
 
 	# Recreate the links
@@ -506,7 +617,10 @@ static func saveToResource( editor : Control ):
 	var all_frames = gedit.get_children().filter( func( n ):
 		return n is GraphFrame and not n.has_meta("flow_retired")
 	)
-	current_resource.data = nodes_as_dict( all_nodes, all_frames, editor, false )
+	var previous_data := {}
+	if typeof(current_resource.data) == TYPE_DICTIONARY:
+		previous_data = current_resource.data
+	current_resource.data = nodes_as_dict( all_nodes, all_frames, editor, false, previous_data )
 	current_resource.view_zoom = gedit.zoom
 	current_resource.view_offset = gedit.scroll_offset
 	current_resource.new_name_counter = editor.new_name_counter
@@ -535,11 +649,11 @@ static func loadFromResource( editor : Control ):
 	if "out_params" in current_resource:
 		for output in current_resource.out_params:
 			editor.registerOutputNodeType( output )
-		
+
 	if current_resource.data and not current_resource.data.is_empty():
 		var paste_offset = _parse_vector2( current_resource.data.min_pos )
 		create_nodes_from_dict( current_resource.data, editor, paste_offset, false )
-		
+
 	editor.gedit.zoom = current_resource.view_zoom
 	editor.gedit.scroll_offset = current_resource.view_offset
 	editor.new_name_counter = maxi(current_resource.new_name_counter, _max_node_name_counter(current_resource.data))
@@ -827,13 +941,13 @@ static func evaluate_graph(graph: FlowGraphResource, input_data_map: Dictionary,
 		instance.node_template = template
 		if not meta.is_empty() and instance.has_method("setup_from_flow_node_metadata"):
 			instance.call("setup_from_flow_node_metadata", template, meta)
-		
+
 		# Initialize settings resource if defined
 		if meta.is_empty():
 			meta = instance.getMeta()
 		if meta.has("settings") and meta.settings:
 			instance.settings = meta.settings.new()
-		
+
 		# Apply saved settings
 		dict_to_resource(n_data.settings, instance.settings, false)
 		_stabilize_missing_seed(instance.settings, name, template, n_data.settings)
@@ -841,9 +955,9 @@ static func evaluate_graph(graph: FlowGraphResource, input_data_map: Dictionary,
 			instance.settings.inspect_enabled = false
 			if instance.has_method("_sync_editor_state_snapshot"):
 				instance.call("_sync_editor_state_snapshot")
-		
+
 		instance.refreshFromSettings()
-		
+
 		instances[name] = instance
 		node_list.append(instance)
 
@@ -865,7 +979,7 @@ static func evaluate_graph(graph: FlowGraphResource, input_data_map: Dictionary,
 				or "pcg_map_plan" in ordered_node.name
 			):
 				print("eval_order: %s (%s)" % [ordered_node.name, ordered_node.node_template])
-			
+
 	# Construct EvaluationContext for subgraph
 	var ctx = load("res://addons/flow_nodes_editor/flow_data.gd").EvaluationContext.new()
 	ctx.graph = graph
@@ -878,7 +992,7 @@ static func evaluate_graph(graph: FlowGraphResource, input_data_map: Dictionary,
 	ctx.runtime_params["__eval_depth"] = depth
 	_inherit_flow_variables(ctx, parent_ctx)
 	FlowVariableEval._mirror_variables_to_runtime(ctx)
-	
+
 	# Feed subgraph inputs from input_data_map
 	for node in ordered_nodes:
 		var is_specific_input = false
@@ -940,7 +1054,7 @@ static func evaluate_graph(graph: FlowGraphResource, input_data_map: Dictionary,
 	for node in ordered_nodes:
 		if (node.node_template.begins_with("input_") or node.node_template == "input") and node.generated_bulks.size() > 0:
 			continue
-			
+
 		node.inputs.clear()
 		var num_ins = node.getMeta().get("ins", []).size()
 		if node.node_template == "output":
@@ -957,7 +1071,7 @@ static func evaluate_graph(graph: FlowGraphResource, input_data_map: Dictionary,
 				var src_bulk = src.generated_bulks[src.generated_bulks.size() - 1]
 				if conn.from_port < src_bulk.size():
 					node.inputs[conn.to_port] = src_bulk[conn.from_port]
-					
+
 		node.preExecute(ctx)
 		if node.settings.disabled:
 			node.executedDisabled(ctx)
@@ -965,7 +1079,7 @@ static func evaluate_graph(graph: FlowGraphResource, input_data_map: Dictionary,
 			node.run(ctx)
 		if FlowVariableEval.should_refresh_debug_draw(node):
 			node.setupDrawDebug()
-		
+
 	# Collect output data
 	var outputs = {}
 	for node in node_list:
