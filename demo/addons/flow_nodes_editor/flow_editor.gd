@@ -3,6 +3,7 @@ extends Control
 class_name FlowEditor
 
 signal regen_run_completed(run_id: int)
+signal manual_regen_requested
 
 # This is the main container of the DataFlow Graph Editor
 
@@ -6205,6 +6206,7 @@ func markFinalNodesAsDirty():
 			node.dirty = true
 
 func _on_button_regenerate_pressed() -> void:
+	manual_regen_requested.emit()
 	#for key in input_sources.keys():
 		#print( key )	
 		#for val in input_sources[ key ]:
