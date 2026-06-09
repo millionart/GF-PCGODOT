@@ -53,6 +53,7 @@ const EDITOR_SETTING_HIDE_INSPECTOR_TITLE := "addons/flow_nodes_editor/hide_insp
 const EDITOR_SETTING_HIDE_RESOURCE_BUILTIN_ROWS := "addons/flow_nodes_editor/hide_resource_builtin_rows"
 const EDITOR_SETTING_TRACK_EXTERNAL_EDITS := "addons/flow_nodes_editor/track_external_edits"
 const MCP_FORCE_FLOATING_META := &"flow_mcp_force_graph_panel_floating"
+const TOOLBAR_EXTENSION_ID_META := &"flow_toolbar_extension_id"
 
 # New nodes generation using the editor
 var local_drop_position : Vector2 = Vector2(0,0)
@@ -397,6 +398,47 @@ func _connect_graph_edit_signals(graph_edit: GraphEdit) -> void:
 		graph_edit.begin_node_move.connect(_on_graph_edit_begin_node_move)
 	if not graph_edit.end_node_move.is_connected(_on_graph_edit_end_node_move):
 		graph_edit.end_node_move.connect(_on_graph_edit_end_node_move)
+
+
+func add_toolbar_extension(
+	extension_id: String,
+	control: Control,
+	before_node_name: String = "ToolbarSpacer"
+) -> Control:
+	var normalized_id := extension_id.strip_edges()
+	if normalized_id.is_empty() or control == null or toolbar_hbox == null:
+		return null
+	var existing := get_toolbar_extension(normalized_id)
+	if existing != null:
+		return existing
+	if control.get_parent() != null:
+		control.get_parent().remove_child(control)
+	control.set_meta(TOOLBAR_EXTENSION_ID_META, normalized_id)
+	toolbar_hbox.add_child(control)
+	var anchor := toolbar_hbox.get_node_or_null(before_node_name) as Control
+	if anchor != null:
+		toolbar_hbox.move_child(control, anchor.get_index())
+	return control
+
+
+func get_toolbar_extension(extension_id: String) -> Control:
+	var normalized_id := extension_id.strip_edges()
+	if normalized_id.is_empty() or toolbar_hbox == null:
+		return null
+	for child in toolbar_hbox.get_children():
+		var control := child as Control
+		if control != null and str(control.get_meta(TOOLBAR_EXTENSION_ID_META, "")) == normalized_id:
+			return control
+	return null
+
+
+func remove_toolbar_extension(extension_id: String) -> bool:
+	var extension := get_toolbar_extension(extension_id)
+	if extension == null:
+		return false
+	toolbar_hbox.remove_child(extension)
+	extension.queue_free()
+	return true
 
 
 func _set_graph_edit_menu_panel_visible(graph_edit: GraphEdit, visible: bool) -> void:
