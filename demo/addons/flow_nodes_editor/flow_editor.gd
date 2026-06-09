@@ -445,16 +445,56 @@ func remove_toolbar_extension(extension_id: String) -> bool:
 	return true
 
 
+func _is_document_preview_owner(owner: Node) -> bool:
+	if owner == null or not is_instance_valid(owner):
+		return false
+	if not owner is FlowGraphNode3D:
+		return false
+	if owner.get_parent() != self:
+		return false
+	if owner.name == DOCUMENT_PREVIEW_OWNER_NAME:
+		return true
+	return owner.name.begins_with("@Node3D@")
+
+
+func _find_document_preview_owner() -> FlowGraphNode3D:
+	for child in get_children():
+		if child is FlowGraphNode3D and _is_document_preview_owner(child):
+			return child as FlowGraphNode3D
+	return null
+
+
+func _cleanup_orphan_document_preview_owners(keep: FlowGraphNode3D) -> void:
+	for child in get_children():
+		if child is FlowGraphNode3D and _is_document_preview_owner(child) and child != keep:
+			child.queue_free()
+
+
+func _resolve_tab_title(tab_res: FlowGraphResource, owner: Node) -> String:
+	if is_instance_valid(tab_res) and tab_res.resource_path != "":
+		return tab_res.resource_path.get_file()
+	if owner != null and not _is_document_preview_owner(owner):
+		return String(owner.name)
+	if is_instance_valid(tab_res) and tab_res.resource_path == "":
+		return FlowI18n.t("Untitled / Unsaved")
+	return FlowI18n.t("Untitled")
+
+
 func ensure_document_preview_owner() -> FlowGraphNode3D:
-	if resource_owner is FlowGraphNode3D:
+	if resource_owner is FlowGraphNode3D and not _is_document_preview_owner(resource_owner):
 		return resource_owner
-	var owner := FlowGraphNode3D.new()
-	owner.name = DOCUMENT_PREVIEW_OWNER_NAME
-	owner.args = {
-		"chunk_coord": [0, 0],
-		"graph_version": 1,
-	}
-	add_child(owner)
+	var owner := _find_document_preview_owner()
+	if owner == null:
+		owner = FlowGraphNode3D.new()
+		owner.name = DOCUMENT_PREVIEW_OWNER_NAME
+		owner.args = {
+			"chunk_coord": [0, 0],
+			"graph_version": 1,
+		}
+		add_child(owner)
+	elif owner.name != DOCUMENT_PREVIEW_OWNER_NAME:
+		owner.name = DOCUMENT_PREVIEW_OWNER_NAME
+	_cleanup_orphan_document_preview_owners(owner)
 	if active_tab_index >= 0 and active_tab_index < open_tabs.size():
 		open_tabs[active_tab_index].owner = owner
 	resource_owner = owner
@@ -619,7 +659,7 @@ func _is_pristine_untitled_tab(index: int) -> bool:
 	var tab_res := open_tabs[index].resource as FlowGraphResource
 	if not is_instance_valid(tab_res) or tab_res.resource_path != "":
 		return false
-	if open_tabs[index].owner != null:
+	if open_tabs[index].owner != null and not _is_document_preview_owner(open_tabs[index].owner):
 		return false
 	var nodes: Array = tab_res.data.get("nodes", [])
 	if not nodes.is_empty():
@@ -1105,13 +1145,7 @@ func _update_tab_titles():
 		return
 	for i in range(open_tabs.size()):
 		var tab_res = open_tabs[i].resource
-		var tab_title = FlowI18n.t("Untitled")
-		if is_instance_valid(tab_res) and tab_res.resource_path != "":
-			tab_title = tab_res.resource_path.get_file()
-		elif open_tabs[i].owner:
-			tab_title = open_tabs[i].owner.name
-		elif is_instance_valid(tab_res) and tab_res.resource_path == "":
-			tab_title = FlowI18n.t("Untitled / Unsaved")
+		var tab_title := _resolve_tab_title(tab_res, open_tabs[i].owner)
 		if _is_tab_dirty(i):
 			tab_title = "* " + tab_title
 		tab_bar.set_tab_title(i, tab_title)
@@ -1195,12 +1229,8 @@ func _show_unsaved_close_warning(index: int) -> void:
 	_ensure_unsaved_close_dialog()
 	_apply_unsaved_close_dialog_translations()
 	pending_unsaved_close_tab_index = index
-	var title := FlowI18n.t("Untitled / Unsaved")
 	var tab_res := open_tabs[index].resource as FlowGraphResource
-	if is_instance_valid(tab_res) and tab_res.resource_path != "":
-		title = tab_res.resource_path.get_file()
-	elif open_tabs[index].owner:
-		title = String(open_tabs[index].owner.name)
+	var title := _resolve_tab_title(tab_res, open_tabs[index].owner)
 	unsaved_close_dialog.dialog_text = (
 		FlowI18n.t("Save the graph before closing it:")
 		+ "\n"
@@ -2201,13 +2231,8 @@ func _sync_tab_bar_from_open_tabs() -> void:
 	while tab_bar.get_tab_count() > 0:
 		tab_bar.remove_tab(tab_bar.get_tab_count() - 1)
 	for tab in open_tabs:
-		var tab_title := FlowI18n.t("Untitled")
 		var tab_res: FlowGraphResource = tab.get("resource")
-		if is_instance_valid(tab_res) and tab_res.resource_path != "":
-			tab_title = tab_res.resource_path.get_file()
-		elif tab.get("owner"):
-			tab_title = String(tab.owner.name)
-		tab_bar.add_tab(tab_title)
+		tab_bar.add_tab(_resolve_tab_title(tab_res, tab.get("owner")))
 	if active_tab_index >= 0 and active_tab_index < tab_bar.get_tab_count():
 		tab_bar.current_tab = active_tab_index
 	if tab_changed_was_connected:
