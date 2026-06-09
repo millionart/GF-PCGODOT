@@ -53,19 +53,6 @@ static func _link_key(link) -> String:
 		int(link.get("to_port", -1)),
 	]
 
-static func _link_order_from_data(data: Dictionary) -> Dictionary:
-	var order := {}
-	var links = data.get("links", [])
-	if typeof(links) != TYPE_ARRAY:
-		return order
-	var index := 0
-	for link in links:
-		var key := _link_key(link)
-		if not key.is_empty() and not order.has(key):
-			order[key] = index
-		index += 1
-	return order
-
 static func _ordered_name_key(item, order: Dictionary) -> String:
 	if typeof(item) != TYPE_DICTIONARY:
 		return "9999999999:"
@@ -73,12 +60,6 @@ static func _ordered_name_key(item, order: Dictionary) -> String:
 	if order.has(name):
 		return "%010d:%s" % [int(order[name]), name]
 	return "9999999999:%s" % name
-
-static func _ordered_link_key(link, order: Dictionary) -> String:
-	var key := _link_key(link)
-	if order.has(key):
-		return "%010d:%s" % [int(order[key]), key]
-	return "9999999999:%s" % key
 
 static func _is_close_vector2(a, b) -> bool:
 	var va := _parse_vector2(a)
@@ -295,11 +276,12 @@ static func nodes_as_dict( nodes, frames, editor : Control, include_template_tra
 		if connection.from_node in exported_node_names and connection.to_node in exported_node_names:
 			links.append( connection )
 	if not include_template_transients:
-		var link_order := _link_order_from_data(previous_data)
-		if not link_order.is_empty():
-			links.sort_custom(func(a, b):
-				return _ordered_link_key(a, link_order) < _ordered_link_key(b, link_order)
-			)
+		# Canonical link order keeps template saves stable when users disconnect and
+		# reconnect the same wire. queueSave on disconnect drops the link from
+		# previous_data, so order-preservation alone would append it at the end.
+		links.sort_custom(func(a, b):
+			return _link_key(a) < _link_key(b)
+		)
 
 	var frames_clean = frames.map( func( node ):
 		var attached : Array[StringName] = editor.gedit.get_attached_nodes_of_frame(node.name)
