@@ -10,12 +10,8 @@ const TEMPLATE_VECTOR_EPSILON := 0.1
 const TEMPLATE_TRANSIENT_SETTINGS_PROPS := {
 	"debug_enabled": true,
 	"inspect_enabled": true,
-	"debug_mode": true,
-	"debug_scale": true,
 	"debug_bulk": true,
 	"debug_output": true,
-	"debug_color": true,
-	"debug_modulate_by": true,
 	"trace": true,
 }
 
@@ -122,7 +118,7 @@ static func fresh_graph_for_evaluation(graph: FlowGraphResource) -> FlowGraphRes
 		return fresh
 	return graph
 
-static func resource_to_dict(resource: Resource, include_template_transients := true) -> Dictionary:
+static func resource_to_dict(resource: Resource, include_template_transients := false) -> Dictionary:
 	var dict := {}
 	for prop in resource.get_property_list():
 		var name := String(prop.name)
@@ -164,7 +160,7 @@ static  func _parse_vector3(value) -> Vector3:
 		return Vector3(parts[0], parts[1], parts[2])
 	return value
 
-static func dict_to_resource(data: Dictionary, resource: Resource, include_template_transients := true) -> void:
+static func dict_to_resource(data: Dictionary, resource: Resource, include_template_transients := false) -> void:
 	for prop in resource.get_property_list():
 		var name := String(prop.name)
 		if _is_metadata_property(name):
