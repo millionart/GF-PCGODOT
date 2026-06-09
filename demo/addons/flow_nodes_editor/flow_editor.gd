@@ -2,6 +2,8 @@
 extends Control
 class_name FlowEditor
 
+signal regen_run_completed(run_id: int)
+
 # This is the main container of the DataFlow Graph Editor
 
 var current_resource: FlowGraphResource
@@ -54,6 +56,7 @@ const EDITOR_SETTING_HIDE_RESOURCE_BUILTIN_ROWS := "addons/flow_nodes_editor/hid
 const EDITOR_SETTING_TRACK_EXTERNAL_EDITS := "addons/flow_nodes_editor/track_external_edits"
 const MCP_FORCE_FLOATING_META := &"flow_mcp_force_graph_panel_floating"
 const TOOLBAR_EXTENSION_ID_META := &"flow_toolbar_extension_id"
+const DOCUMENT_PREVIEW_OWNER_NAME := "FlowDocumentPreviewOwner"
 
 # New nodes generation using the editor
 var local_drop_position : Vector2 = Vector2(0,0)
@@ -439,6 +442,22 @@ func remove_toolbar_extension(extension_id: String) -> bool:
 	toolbar_hbox.remove_child(extension)
 	extension.queue_free()
 	return true
+
+
+func ensure_document_preview_owner() -> FlowGraphNode3D:
+	if resource_owner is FlowGraphNode3D:
+		return resource_owner
+	var owner := FlowGraphNode3D.new()
+	owner.name = DOCUMENT_PREVIEW_OWNER_NAME
+	owner.args = {
+		"chunk_coord": [0, 0],
+		"graph_version": 1,
+	}
+	add_child(owner)
+	if active_tab_index >= 0 and active_tab_index < open_tabs.size():
+		open_tabs[active_tab_index].owner = owner
+	resource_owner = owner
+	return owner
 
 
 func _set_graph_edit_menu_panel_visible(graph_edit: GraphEdit, visible: bool) -> void:
@@ -1008,6 +1027,7 @@ func _activate_tab_resource(index: int, new_owner = null) -> void:
 
 func _finish_tab_switch(index: int, restored_cached_ui: bool) -> void:
 	ctx.graph = current_resource
+	ensure_document_preview_owner()
 	ctx.owner = resource_owner
 	ctx.gedit_nodes_by_name = gedit_nodes_by_name
 	if restored_cached_ui and _current_graph_uses_owner_debug_fixture():
@@ -3385,6 +3405,7 @@ func _complete_regen_run(run_id: int) -> void:
 	if not _is_current_regen_run(run_id):
 		return
 	regen_running = false
+	regen_run_completed.emit(run_id)
 	if regen_requested_while_running:
 		regen_requested_while_running = false
 		regen_pending = auto_regen
