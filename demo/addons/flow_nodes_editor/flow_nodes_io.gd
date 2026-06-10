@@ -857,40 +857,30 @@ static func _add_virtual_variable_dependencies(node_list: Array) -> void:
 ## Shared execution order for evaluate_graph() and the editor's evalGraph().
 ## node_list entries must already have physical deps; call _add_virtual_variable_dependencies first when needed.
 static func build_execution_order(node_list: Array, instances_by_name: Dictionary) -> Array:
-	var get_deps_recursive = func(node, on_stack: Dictionary, closed: Dictionary, this_func) -> Array:
+	var ordered_nodes: Array = []
+	var visited: Dictionary = {}
+	var visit_node = func(node, on_stack: Dictionary, this_func) -> void:
+		if visited.has(node.name):
+			return
 		if on_stack.has(node.name):
 			push_warning("Circular dependency detected involving node: " + node.name)
-			return []
-		if closed.has(node.name):
-			return []
+			return
 		on_stack[node.name] = true
-		var deps = [node]
 		for conn in node.deps:
 			var dep_node = instances_by_name.get(conn.from_node)
 			if dep_node:
-				deps.append_array(this_func.call(dep_node, on_stack, closed, this_func))
+				this_func.call(dep_node, on_stack, this_func)
 		on_stack.erase(node.name)
-		closed[node.name] = true
-		return deps
+		visited[node.name] = true
+		ordered_nodes.append(node)
 
 	var finals = node_list.filter(func(node):
 		if node.settings != null and node.settings.disabled:
 			return false
 		return _is_topo_final_root(node)
 	)
-	var all_deps: Array = []
 	for node in finals:
-		all_deps.append_array(get_deps_recursive.call(node, {}, {}, get_deps_recursive))
-	all_deps.reverse()
-
-	var ordered_nodes: Array = []
-	var visited: Dictionary = {}
-	for node in all_deps:
-		if not visited.has(node.name):
-			visited[node.name] = true
-			ordered_nodes.append(node)
-	_stabilize_variable_execution_order(ordered_nodes)
-	_stabilize_consumer_input_order(ordered_nodes)
+		visit_node.call(node, {}, visit_node)
 	return ordered_nodes
 
 
