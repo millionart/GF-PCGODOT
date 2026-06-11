@@ -10,7 +10,6 @@ func _init():
 		"aliases" : ["Input", "graph parameter"],
 		"category" : "Input",
 		"tooltip" : "Exposes an input of the Flow Graph Node into the Graph",
-		"category" : "Input Output",
 		"auto_register" : true,
 		"hide_inputs" : true
 	}

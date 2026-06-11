@@ -929,9 +929,10 @@ static func evaluate_graph(graph: FlowGraphResource, input_data_map: Dictionary,
 		var template = n_data.template
 		var name = n_data.name
 		var meta: Dictionary = FlowNodeRegistry.get_node_metadata(template)
+		var script_path := ""
 		var node_script: Script = meta.get("factory", null) as Script
 		if node_script == null:
-			var script_path = FlowNodeRegistry.get_node_script_path(template)
+			script_path = FlowNodeRegistry.get_node_script_path(template)
 			if script_path.is_empty():
 				push_error("Failed to resolve node script for template: %s. Make sure its provider addon registered its node directory before evaluation." % template)
 				continue

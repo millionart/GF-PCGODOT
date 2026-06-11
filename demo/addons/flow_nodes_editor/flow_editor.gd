@@ -958,14 +958,14 @@ func find_debug_world_node() -> Node3D:
 			return node3d
 	return null
 
-func _is_same_graph_resource(a: FlowGraphResource, b: FlowGraphResource) -> bool:
-	if a == b:
+func _is_same_graph_resource(left, right) -> bool:
+	if left == right:
 		return true
-	if a == null or b == null:
+	if not (left is FlowGraphResource) or not (right is FlowGraphResource):
 		return false
-	var a_path := String(a.resource_path)
-	var b_path := String(b.resource_path)
-	return not a_path.is_empty() and a_path == b_path
+	if left.resource_path == "" or right.resource_path == "":
+		return false
+	return left.resource_path == right.resource_path
 
 func _refresh_active_graph_context() -> void:
 	if current_resource == null:
@@ -1085,16 +1085,6 @@ func _current_graph_uses_owner_debug_fixture() -> bool:
 	if not resource_owner.has_meta("flow_debug_input_data_map"):
 		return false
 	return _is_same_graph_resource(resource_owner.get_meta("flow_debug_graph"), current_resource)
-
-func _is_same_graph_resource(left, right) -> bool:
-	if left == right:
-		return true
-	if not (left is FlowGraphResource) or not (right is FlowGraphResource):
-		return false
-	if left.resource_path == "" or right.resource_path == "":
-		return false
-	return left.resource_path == right.resource_path
-
 
 func _prepare_node_types_for_graph_load() -> void:
 	node_registry_version = FlowNodeRegistry.get_version()
