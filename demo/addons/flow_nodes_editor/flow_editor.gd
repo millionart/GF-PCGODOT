@@ -2505,6 +2505,10 @@ func _on_native_graph_grid_toggled(toggled_on: bool):
 	_apply_graph_grid_mode()
 
 func _is_graph_panel_floating() -> bool:
+	if has_meta(MCP_FORCE_FLOATING_META):
+		return bool(get_meta(MCP_FORCE_FLOATING_META))
+	if not Engine.is_editor_hint():
+		return false
 	var current_window := get_window()
 	var main_window := EditorInterface.get_base_control().get_window()
 	return current_window != null and main_window != null and current_window != main_window

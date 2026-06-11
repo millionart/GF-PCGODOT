@@ -5,7 +5,6 @@ extends RefCounted
 ## Toolbar + tab row (styles, signals, i18n). Does not touch graph / comment code.
 
 const INITIALIZED_META := &"flow_editor_chrome_initialized"
-const GRAPH_MENU_PANEL_MIN_ALPHA := 0.68
 const TOOLBAR_ICON_BY_NAME := {
 	"ButtonSave": "Save",
 	"ButtonBrowse": "ShowInFileSystem",
@@ -365,27 +364,14 @@ static func _style_graph_menu_toolbar(refs: Refs) -> void:
 	if graph_menu_panel == null:
 		return
 	var editor_scale := EditorInterface.get_editor_scale() if Engine.is_editor_hint() else 1.0
-	var panel_style := _make_graph_menu_panel_style(refs.graph_edit)
-	if panel_style != null:
-		graph_menu_panel.add_theme_stylebox_override("panel", panel_style)
-		graph_menu_panel.call_deferred(
-			"add_theme_stylebox_override",
-			"panel",
-			_make_graph_menu_panel_style(refs.graph_edit),
-		)
+	var toolbar_panel_style := StyleBoxFlat.new()
+	toolbar_panel_style.bg_color = Color(0.055, 0.06, 0.075, 0.82)
+	toolbar_panel_style.set_border_width_all(1)
+	toolbar_panel_style.border_color = Color(1.0, 1.0, 1.0, 0.07)
+	toolbar_panel_style.set_corner_radius_all(int(4 * editor_scale))
+	toolbar_panel_style.content_margin_left = 8 * editor_scale
+	toolbar_panel_style.content_margin_right = 8 * editor_scale
+	toolbar_panel_style.content_margin_top = 6 * editor_scale
+	toolbar_panel_style.content_margin_bottom = 6 * editor_scale
+	graph_menu_panel.add_theme_stylebox_override("panel", toolbar_panel_style)
 	refs.toolbar_hbox.add_theme_constant_override("separation", int(4 * editor_scale))
-
-
-static func _make_graph_menu_panel_style(graph_edit: GraphEdit) -> StyleBox:
-	if graph_edit == null:
-		return null
-	var panel_style := graph_edit.get_theme_stylebox("menu_panel", "GraphEdit")
-	if panel_style == null:
-		return null
-	var toolbar_panel_style := panel_style.duplicate()
-	if toolbar_panel_style is StyleBoxFlat:
-		var flat_style := toolbar_panel_style as StyleBoxFlat
-		var bg_color := flat_style.bg_color
-		bg_color.a = maxf(bg_color.a, GRAPH_MENU_PANEL_MIN_ALPHA)
-		flat_style.bg_color = bg_color
-	return toolbar_panel_style
