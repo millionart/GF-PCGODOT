@@ -19,8 +19,12 @@ var num_rows : int = 0
 var num_cols : int = 0
 var col_titles : Array[String]
 var col_streams_names : Array[String]
-var data : FlowData.Data 
+var data : FlowData.Data
 var visible_rows : Array[int] = []
+
+# View-only column sorting state (never mutates the underlying FlowData)
+var sort_col : int = -1
+var sort_ascending : bool = true
 
 # The slot corresponds to InA, InB, or Out streams for example
 # The setetings are not included
@@ -238,6 +242,7 @@ func refresh():
 		if has_node("%FilterEdit"):
 			filter_text = %FilterEdit.text
 		update_visible_rows(filter_text)
+		apply_sort()
 		
 		# Stats: row/col summary
 		%LabelStats.text = FlowI18n.t("%d rows · %d streams · %d cols") % [ num_rows, data.numFields(), num_cols]
@@ -324,47 +329,86 @@ func _get_flow_editor() -> FlowEditor:
 		current = current.get_parent()
 	return null
 
-func mcp_simulate_click_at_global(global_pos: Vector2, double_click: bool) -> Dictionary:
-	if not tv:
-		return {"ok": false, "error": "TableView not ready"}
-	var scroll: Control = tv.get_node_or_null("ScrollContainer") as Control
-	if scroll == null:
-		return {"ok": false, "error": "ScrollContainer missing"}
-	var local_pos: Vector2 = scroll.get_global_transform_with_canvas().affine_inverse() * global_pos
-	if not scroll.get_global_rect().has_point(global_pos):
-		return {"ok": false, "error": "global position outside table scroll area", "global_pos": global_pos}
-	var row := tv._row_at_local_position(local_pos, true)
-	if row < 0:
-		return {"ok": false, "error": "no row at position", "local_pos": local_pos}
-	if double_click:
-		_on_table_row_double_clicked(row)
+func onTitleClicked( col : int ):
+	if col < 0 or data == null:
+		return
+	if sort_col == col:
+		sort_ascending = not sort_ascending
 	else:
-		onCellClicked(row, 0)
-	return {
-		"ok": true,
-		"row": row,
-		"local_pos": local_pos,
-		"double_click": double_click,
-		"real_row": visible_rows[row] if row < visible_rows.size() else row,
-	}
+		sort_col = col
+		sort_ascending = true
+	apply_sort()
+	if tv:
+		tv.refreshUI()
 
-func mcp_simulate_row_double_click(row: int) -> Dictionary:
-	if row < 0:
-		return {"ok": false, "error": "row must be >= 0"}
-	if not tv:
-		return {"ok": false, "error": "TableView not ready"}
-	if row >= visible_rows.size():
-		return {"ok": false, "error": "row out of range", "visible_rows": visible_rows.size()}
-	var world_position := _get_row_world_position(visible_rows[row])
-	if world_position == null:
-		return {"ok": false, "error": "no world position for row", "real_row": visible_rows[row]}
-	_on_table_row_double_clicked(row)
-	return {
-		"ok": true,
-		"row": row,
-		"real_row": visible_rows[row],
-		"world_position": world_position,
-	}
+# Returns a comparable value for the given data row in the given table column.
+# Column 0 is the index column; data columns map through col_streams_names.
+func _row_sort_value( real_row : int, col : int ):
+	if col == 0:
+		return real_row
+	var data_col = col - 1
+	if data_col >= col_streams_names.size():
+		return null
+	var stream = data.streams.get( col_streams_names[ data_col ], null )
+	if stream == null or real_row >= stream.container.size():
+		return null
+	var val = stream.container[ real_row ]
+	match stream.data_type:
+		FlowData.DataType.Vector:
+			if val is Vector3:
+				var title = col_titles[ data_col ]
+				if title.ends_with(".X"):
+					return val.x
+				elif title.ends_with(".Y"):
+					return val.y
+				elif title.ends_with(".Z"):
+					return val.z
+			return null
+		FlowData.DataType.Bool:
+			return 1 if val else 0
+		FlowData.DataType.Int, FlowData.DataType.Float:
+			return val
+		FlowData.DataType.String:
+			return str(val)
+		FlowData.DataType.Resource:
+			var res = val as Resource
+			return res.resource_path if res else ""
+		FlowData.DataType.NodePath, FlowData.DataType.NodeMesh:
+			var n3d = val as Node3D
+			return ( "$" + n3d.name ) if n3d else ""
+	return str(val)
+
+# Reorders visible_rows by the current sort column/direction. View-only:
+# the underlying FlowData streams are never touched.
+func apply_sort():
+	if sort_col < 0 or data == null or visible_rows.is_empty():
+		return
+	var keys := {}
+	for r in visible_rows:
+		keys[r] = _row_sort_value( r, sort_col )
+	var asc = sort_ascending
+	visible_rows.sort_custom(func(a, b):
+		return _sort_rows_less( keys[a], keys[b], asc, a, b )
+	)
+
+func _sort_rows_less( va, vb, asc : bool, row_a : int, row_b : int ) -> bool:
+	# Nulls always sort last, regardless of direction
+	if va == null or vb == null:
+		if va == null and vb == null:
+			return row_a < row_b
+		return va != null
+	# Numeric-aware: strings that parse as numbers compare numerically
+	if va is String and vb is String and va.is_valid_float() and vb.is_valid_float():
+		va = va.to_float()
+		vb = vb.to_float()
+	var a_num = (va is int) or (va is float)
+	var b_num = (vb is int) or (vb is float)
+	if not (a_num and b_num) and not (va is String and vb is String):
+		va = str(va)
+		vb = str(vb)
+	if va == vb:
+		return row_a < row_b # stable tiebreak on original row index
+	return (va < vb) if asc else (va > vb)
 
 func update_visible_rows(filter_text : String):
 	visible_rows.clear()
@@ -423,6 +467,7 @@ func update_visible_rows(filter_text : String):
 
 func _on_filter_edit_text_changed(new_text : String):
 	update_visible_rows(new_text)
+	apply_sort()
 	if tv:
 		tv.num_rows = visible_rows.size()
 		tv.commitColumns()
@@ -432,6 +477,8 @@ func _ready():
 	if not tv.row_double_clicked.is_connected(_on_table_row_double_clicked):
 		tv.row_double_clicked.connect(_on_table_row_double_clicked)
 	refresh_localized_text()
+	if not tv.title_clicked.is_connected(onTitleClicked):
+		tv.title_clicked.connect( onTitleClicked )
 	
 	# Style the header elements for a compact, polished look
 	if has_node("%LabelTitle"):

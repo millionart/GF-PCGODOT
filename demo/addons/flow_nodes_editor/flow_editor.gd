@@ -776,7 +776,7 @@ func _deferred_apply_viewport_focus() -> void:
 
 
 func _deferred_verify_viewport_focus_alignment() -> void:
-	var measure := mcp_measure_focus_alignment(_pending_focus_world_position)
+	var measure := _measure_focus_alignment(_pending_focus_world_position)
 	if float(measure.get("alignment_error", 0.0)) > 2.0:
 		_focus_viewport_via_camera_basis(_pending_focus_world_position)
 	call_deferred("_deferred_finish_viewport_focus")
@@ -850,35 +850,7 @@ func _focus_viewport_via_camera_basis(world_position: Vector3) -> void:
 		distance = maxf(8.0, xf.origin.distance_to(world_position))
 	camera.global_transform = Transform3D(xf.basis, world_position + z_axis * distance)
 
-## MCP / tests: read spatial editor camera and estimated orbit pivot.
-func mcp_get_spatial_editor_camera_state() -> Dictionary:
-	if not Engine.is_editor_hint():
-		return {"ok": false, "error": "editor only"}
-	var camera := _get_active_spatial_editor_camera()
-	if camera == null:
-		return {"ok": false, "error": "no editor camera"}
-	var xf := camera.global_transform
-	return {
-		"ok": true,
-		"camera_origin": xf.origin,
-		"camera_basis_z": xf.basis.z,
-		"camera_basis_y": xf.basis.y,
-	}
-
-## MCP: queue focus; call [method mcp_measure_focus_alignment] after ~2 editor frames.
-func mcp_focus_point_and_measure(world_position: Vector3) -> Dictionary:
-	if not world_position.is_finite():
-		return {"ok": false, "error": "invalid position"}
-	var before := mcp_get_spatial_editor_camera_state()
-	var invoked := focus_viewport_on_point(world_position)
-	return {
-		"ok": invoked,
-		"target": world_position,
-		"before": before,
-		"note": "Call mcp_measure_focus_alignment with the same target after two process frames.",
-	}
-
-func mcp_measure_focus_alignment(target: Vector3) -> Dictionary:
+func _measure_focus_alignment(target: Vector3) -> Dictionary:
 	var camera := _get_active_spatial_editor_camera()
 	if camera == null:
 		return {"ok": false, "error": "no editor camera"}
@@ -898,7 +870,6 @@ func mcp_measure_focus_alignment(target: Vector3) -> Dictionary:
 		"orbit_depth": depth,
 		"camera_origin": camera.global_position,
 	}
-
 
 ## MCP: populate Analyze panel from existing eval results without running evalGraph() again.
 func mcp_show_analyze_for_node(node: FlowNodeBase) -> Dictionary:
@@ -987,6 +958,23 @@ func find_debug_world_node() -> Node3D:
 			return node3d
 	return null
 
+func _is_same_graph_resource(a: FlowGraphResource, b: FlowGraphResource) -> bool:
+	if a == b:
+		return true
+	if a == null or b == null:
+		return false
+	var a_path := String(a.resource_path)
+	var b_path := String(b.resource_path)
+	return not a_path.is_empty() and a_path == b_path
+
+func _refresh_active_graph_context() -> void:
+	if current_resource == null:
+		return
+	ctx.graph = current_resource
+	ctx.owner = resource_owner
+	ctx.gedit_nodes_by_name = gedit_nodes_by_name
+	markAllNodesAsDirty()
+	queueForcedRegen()
 
 func setResourceToEdit( new_resource : FlowGraphResource, new_resource_owner : FlowGraphNode3D ):
 	if new_resource == null:
@@ -999,7 +987,7 @@ func setResourceToEdit( new_resource : FlowGraphResource, new_resource_owner : F
 	# Check if this resource is already open in a tab
 	var found_idx = -1
 	for i in range(open_tabs.size()):
-		if open_tabs[i].resource == new_resource:
+		if _is_same_graph_resource(open_tabs[i].resource, new_resource):
 			found_idx = i
 			break
 			
@@ -1009,7 +997,7 @@ func setResourceToEdit( new_resource : FlowGraphResource, new_resource_owner : F
 			if new_resource_owner != null:
 				resource_owner = new_resource_owner
 				open_tabs[found_idx].owner = new_resource_owner
-				ctx.owner = new_resource_owner
+				_refresh_active_graph_context()
 			_close_pristine_untitled_tabs(new_resource)
 			return
 		_switch_to_tab(found_idx, new_resource_owner)
@@ -1318,7 +1306,7 @@ func _set_resource_to_edit_with_loading(new_resource: FlowGraphResource, new_res
 
 	var found_idx := -1
 	for i in range(open_tabs.size()):
-		if open_tabs[i].resource == new_resource:
+		if _is_same_graph_resource(open_tabs[i].resource, new_resource):
 			found_idx = i
 			break
 
@@ -1327,7 +1315,7 @@ func _set_resource_to_edit_with_loading(new_resource: FlowGraphResource, new_res
 			if new_resource_owner != null:
 				resource_owner = new_resource_owner
 				open_tabs[found_idx].owner = new_resource_owner
-				ctx.owner = new_resource_owner
+				_refresh_active_graph_context()
 			_close_pristine_untitled_tabs(new_resource)
 			return
 		await _switch_to_tab_with_loading(found_idx, new_resource_owner)
@@ -2527,8 +2515,6 @@ func _on_native_graph_grid_toggled(toggled_on: bool):
 	_apply_graph_grid_mode()
 
 func _is_graph_panel_floating() -> bool:
-	if has_meta(MCP_FORCE_FLOATING_META):
-		return bool(get_meta(MCP_FORCE_FLOATING_META))
 	var current_window := get_window()
 	var main_window := EditorInterface.get_base_control().get_window()
 	return current_window != null and main_window != null and current_window != main_window
@@ -2551,7 +2537,7 @@ func _float_graph_panel():
 	var current_window := get_window()
 	var main_window := EditorInterface.get_base_control().get_window()
 	if current_window and current_window != main_window:
-		_maximize_graph_panel_window()
+		_focus_graph_panel_window()
 		_sync_internal_inspector_mode_if_needed()
 		return
 
@@ -2566,7 +2552,7 @@ func _float_graph_panel():
 	float_button.pressed.emit()
 	await get_tree().process_frame
 	_sync_internal_inspector_mode_if_needed()
-	_maximize_graph_panel_window()
+	_focus_graph_panel_window()
 
 func _get_dock_float_button() -> Button:
 	var editor_dock := _get_editor_dock()
@@ -2607,13 +2593,12 @@ func _find_dock_float_button(node: Node) -> Button:
 			return nested_button
 	return null
 
-func _maximize_graph_panel_window():
+func _focus_graph_panel_window():
 	var current_window := get_window()
 	var main_window := EditorInterface.get_base_control().get_window()
 	if not current_window or current_window == main_window:
 		update_status_bar(FlowI18n.t("Could not float graph panel"))
 		return
-	current_window.mode = Window.MODE_MAXIMIZED
 	current_window.grab_focus()
 	update_status_bar(FlowI18n.t("Graph panel floated"))
 
@@ -3014,7 +2999,33 @@ func _find_nearest_connection(screen_pos: Vector2):
 	
 	return best_conn
 
-## Analyze a specific node.
+## Splices a reroute node into an existing connection at the given screen position
+## (double-click on a wire). Records a single undo action covering the node add
+## and the wire splice (disconnect original, connect src -> reroute -> dst).
+func _insert_reroute_on_connection(conn, screen_pos: Vector2):
+	var from_node : StringName = conn.from_node
+	var from_port : int = conn.from_port
+	var to_node : StringName = conn.to_node
+	var to_port : int = conn.to_port
+
+	var before_state = get_graph_snapshot()
+	local_drop_position = screen_pos
+	var node_name = getNewName("reroute")
+	var reroute_node = addNodeFromTemplate("reroute", node_name)
+	if not reroute_node:
+		return
+	# Center the compact reroute on the click point
+	reroute_node.position_offset -= Vector2(15, 15)
+
+	disconnect_nodes(from_node, from_port, to_node, to_port)
+	connect_nodes(from_node, from_port, reroute_node.name, 0)
+	connect_nodes(reroute_node.name, 0, to_node, to_port)
+
+	record_undo_action("Insert Reroute", before_state)
+	update_status_bar("Inserted reroute on %s → %s" % [from_node, to_node])
+	queueRegen()
+
+## Analyze a specific node (used by hover-based hotkeys).
 func analyzeNode(node: FlowNodeBase):
 	if not data_inspector:
 		return
@@ -3829,15 +3840,23 @@ func _on_graph_edit_gui_input(event):
 			gedit.accept_event()
 			return
 
-	# Ctrl+Click on wire to disconnect
-	if evt_mouse and evt_mouse.pressed and evt_mouse.button_index == MOUSE_BUTTON_LEFT and evt_mouse.ctrl_pressed:
+	# Ctrl+Click (or Alt+Click, UE muscle memory) on wire to disconnect
+	if evt_mouse and evt_mouse.pressed and evt_mouse.button_index == MOUSE_BUTTON_LEFT and (evt_mouse.ctrl_pressed or evt_mouse.alt_pressed):
 		var conn = _find_nearest_connection(evt_mouse.position)
 		if conn:
 			_on_graph_edit_disconnection_request(conn.from_node, conn.from_port, conn.to_node, conn.to_port)
 			update_status_bar("Disconnected %s → %s" % [conn.from_node, conn.to_node])
 			gedit.accept_event()
 			return
-	
+
+	# Double-click on wire to insert a reroute node
+	if evt_mouse and evt_mouse.pressed and evt_mouse.double_click and evt_mouse.button_index == MOUSE_BUTTON_LEFT:
+		var conn = _find_nearest_connection(evt_mouse.position)
+		if conn:
+			_insert_reroute_on_connection(conn, evt_mouse.position)
+			gedit.accept_event()
+			return
+
 	var evt_key = event as InputEventKey
 	if evt_key and evt_key.pressed:
 		var no_modifiers = not evt_key.ctrl_pressed and not evt_key.alt_pressed and not evt_key.shift_pressed
@@ -3860,7 +3879,7 @@ func _on_graph_edit_gui_input(event):
 					node.dirty = true
 				evalGraph()
 				gedit.accept_event()
-		elif key == KEY_F:
+		elif key == KEY_F or key == KEY_HOME:
 			if no_modifiers:
 				_zoom_to_fit()
 				gedit.accept_event()
@@ -3961,10 +3980,18 @@ func analyzeSelection():
 
 func addComment():
 	var nodes = getSelectedNodes()
-	var rect = getRectOfNodes( nodes )
-	rect.position -= comment_padding
-	rect.size += comment_padding * 2
-	
+	var rect : Rect2
+	if nodes.is_empty():
+		# No selection: default-size comment centered on the mouse position
+		# (getRectOfNodes would return a degenerate zero rect at the origin).
+		var default_size := Vector2(400, 250)
+		var graph_pos = localToGraphCoords(gedit.get_local_mouse_position())
+		rect = Rect2(graph_pos - default_size * 0.5, default_size)
+	else:
+		rect = getRectOfNodes( nodes )
+		rect.position -= comment_padding
+		rect.size += comment_padding * 2
+
 	var frame := GraphFrame.new()
 	frame.name = getNewName("comment")
 	frame.title = "My Comments..."
@@ -4910,47 +4937,6 @@ func _free_retired_graph_frame_after_deferred_sort(frame: GraphFrame) -> void:
 	frame.queue_free()
 
 
-func mcp_simulate_graph_node_click(node_name: String, skip_preflight_repair: bool = false) -> Dictionary:
-	var audit_before := audit_graph_health()
-	if not skip_preflight_repair:
-		repair_graph_integrity()
-	var node: GraphNode = gedit.get_node_or_null(NodePath(node_name)) as GraphNode
-	if node == null:
-		return {
-			"ok": false,
-			"error": "Graph node not found: %s" % node_name,
-			"audit_before": audit_before,
-		}
-	var press := InputEventMouseButton.new()
-	press.button_index = MOUSE_BUTTON_LEFT
-	press.pressed = true
-	press.position = node.size * 0.5
-	if node.has_method("_gui_input"):
-		node.call("_gui_input", press)
-	var release := InputEventMouseButton.new()
-	release.button_index = MOUSE_BUTTON_LEFT
-	release.pressed = false
-	release.position = node.size * 0.5
-	if node.has_method("_gui_input"):
-		node.call("_gui_input", release)
-	for child in gedit.get_children():
-		if child is GraphNode:
-			child.selected = child == node
-	node.selected = true
-	if gedit.has_signal("node_selected"):
-		gedit.emit_signal("node_selected", node)
-	_on_graph_edit_node_selected(node)
-	if node is CanvasItem:
-		(node as CanvasItem).move_to_front()
-	var audit_after := audit_graph_health()
-	return {
-		"ok": bool(audit_after.get("ok", false)),
-		"node_name": node_name,
-		"audit_before": audit_before,
-		"audit_after": audit_after,
-	}
-
-
 func _count_orphan_graph_connections() -> int:
 	var count := 0
 	for conn in gedit.connections:
@@ -5239,16 +5225,6 @@ func _on_graph_edit_connection_from_empty(to_node: StringName, to_port: int, rel
 	local_drop_position = release_position
 	_on_graph_edit_popup_request( local_drop_position )
 
-func getDeps( node : FlowNodeBase ) -> Array[ FlowNodeBase ]:
-	var deps : Array[ FlowNodeBase ] = [ node ]
-	for conn in node.deps:
-		var dep_node = gedit_nodes_by_name.get( conn.from_node, null )
-		if not dep_node:
-			continue
-		var req_deps = getDeps( dep_node )
-		deps.append_array( req_deps )
-	return deps
-	
 func getAllNodes() -> Array[ FlowNodeBase ]:
 	var nodes : Array[ FlowNodeBase ] = []
 	for child in gedit.get_children():
@@ -5477,7 +5453,6 @@ func getEvalOrder() -> Array[FlowNodeBase]:
 		if flow_node != null:
 			ordered.append(flow_node)
 	return ordered
-
 func removeGeneratedNodes():
 	if not resource_owner:
 		return
@@ -5856,7 +5831,7 @@ func _eval_cache_resource_storage_fingerprint(resource: Resource, depth: int = 0
 		var prop_name := String(prop.name)
 		if FlowInspectorPropertyPolicy.is_metadata_property(prop_name):
 			continue
-		if prop_name in FlowNodeAssets.discardted_props:
+		if prop_name in FlowNodeAssets.discarded_props:
 			continue
 		if EVAL_CACHE_IGNORED_SETTING_PROPS.has(prop_name):
 			continue

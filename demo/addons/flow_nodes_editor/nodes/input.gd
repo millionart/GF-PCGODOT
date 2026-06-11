@@ -7,6 +7,8 @@ func _init():
 		"settings" : InputNodeSettings,
 		"ins" : [],
 		"outs" : [{ "label" : "Out" }],
+		"aliases" : ["Input", "graph parameter"],
+		"category" : "Input",
 		"tooltip" : "Exposes an input of the Flow Graph Node into the Graph",
 		"category" : "Input Output",
 		"auto_register" : true,
@@ -131,6 +133,7 @@ func execute( ctx : FlowData.EvaluationContext ):
 			var output := FlowData.Data.new()
 			var new_container = output.addStream( param.name, param.data_type )
 			if new_container == null:
+				setError( "Failed to create stream for input parameter '%s' (data_type %d)" % [param.name, param.data_type] )
 				continue
 			var fixture_data := _data_fixture_for_input(ctx, param.name, param.data_type)
 			if fixture_data != null:
@@ -163,7 +166,7 @@ func execute( ctx : FlowData.EvaluationContext ):
 		var output := FlowData.Data.new()
 		var new_container = output.addStream( settings.name, input.data_type )
 		if new_container == null:
-			setError( "Invalid name %s or data_type %d (bool)" % [settings.name, input.data_type ])
+			setError( "Failed to create stream for input '%s' (data_type %d)" % [settings.name, input.data_type ])
 			return
 
 		var fixture_data := _data_fixture_for_input(ctx, input.name, input.data_type)
@@ -193,7 +196,7 @@ func _data_fixture_for_input(ctx: FlowData.EvaluationContext, input_name: String
 		return null
 	if not ctx.owner.has_meta("flow_debug_graph") or not ctx.owner.has_meta("flow_debug_input_data_map"):
 		return null
-	if not _is_same_graph_resource(ctx.owner.get_meta("flow_debug_graph"), ctx.graph):
+	if not _debug_graph_matches(ctx.owner, ctx.graph):
 		return null
 	var data_map: Dictionary = ctx.owner.get_meta("flow_debug_input_data_map")
 	var data_value = data_map.get(input_name, null)
@@ -201,14 +204,22 @@ func _data_fixture_for_input(ctx: FlowData.EvaluationContext, input_name: String
 		return null
 	return _normalize_input_data(data_value, input_name, input_type)
 
-func _is_same_graph_resource(left, right) -> bool:
-	if left == right:
+func _debug_graph_matches(owner: Object, graph: FlowGraphResource) -> bool:
+	if owner == null or graph == null:
+		return false
+	var debug_graph = owner.get_meta("flow_debug_graph", null)
+	if debug_graph == graph:
 		return true
-	if not (left is FlowGraphResource) or not (right is FlowGraphResource):
+	var graph_path := String(graph.resource_path)
+	if graph_path.is_empty():
 		return false
-	if left.resource_path == "" or right.resource_path == "":
-		return false
-	return left.resource_path == right.resource_path
+	var debug_path := String(owner.get_meta("flow_debug_graph_path", ""))
+	if not debug_path.is_empty() and debug_path == graph_path:
+		return true
+	if debug_graph is FlowGraphResource:
+		var debug_graph_path := String(debug_graph.resource_path)
+		return not debug_graph_path.is_empty() and debug_graph_path == graph_path
+	return false
 
 func _normalize_input_data(data: FlowData.Data, input_name: String, input_type: FlowData.DataType) -> FlowData.Data:
 	var target := FlowData.Data.new()

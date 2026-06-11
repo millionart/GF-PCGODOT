@@ -122,7 +122,7 @@ func execute( ctx : FlowData.EvaluationContext ):
 			# Priority 3: Graph default (handled by the evaluator's input node)
 	
 	var FlowNodeIOClass = load("res://addons/flow_nodes_editor/flow_nodes_io.gd")
-	var child_depth := int(ctx.runtime_params.get("__eval_depth", 0)) + 1
+	var child_depth := int(ctx.get_meta("flow_eval_depth", ctx.runtime_params.get("__eval_depth", 0))) + 1
 	var debug_meta := _push_child_debug_input_meta(ctx, input_data_map, graph)
 	var outputs = FlowNodeIOClass.evaluate_graph(
 		graph,
@@ -155,6 +155,7 @@ func _gui_input(event: InputEvent):
 			if owner:
 				var debug_inputs := _debug_input_data_map()
 				owner.set_meta("flow_debug_graph", settings.graph)
+				owner.set_meta("flow_debug_graph_path", settings.graph.resource_path)
 				owner.set_meta("flow_debug_input_data_map", debug_inputs)
 			editor.setResourceToEdit(settings.graph, owner)
 			accept_event()

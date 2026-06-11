@@ -105,7 +105,7 @@ static func resource_to_dict(resource: Resource, include_template_transients := 
 		var name := String(prop.name)
 		if _is_metadata_property(name):
 			continue
-		if name in FlowNodeAssets.discardted_props:
+		if name in FlowNodeAssets.discarded_props:
 			continue
 		if not include_template_transients and TEMPLATE_TRANSIENT_SETTINGS_PROPS.has(name):
 			continue
@@ -146,7 +146,7 @@ static func dict_to_resource(data: Dictionary, resource: Resource, include_templ
 		var name := String(prop.name)
 		if _is_metadata_property(name):
 			continue
-		if name in FlowNodeAssets.discardted_props:
+		if name in FlowNodeAssets.discarded_props:
 			continue
 		if not include_template_transients and TEMPLATE_TRANSIENT_SETTINGS_PROPS.has(String(name)):
 			continue
@@ -858,20 +858,21 @@ static func _add_virtual_variable_dependencies(node_list: Array) -> void:
 ## node_list entries must already have physical deps; call _add_virtual_variable_dependencies first when needed.
 static func build_execution_order(node_list: Array, instances_by_name: Dictionary) -> Array:
 	var ordered_nodes: Array = []
-	var visited: Dictionary = {}
-	var visit_node = func(node, on_stack: Dictionary, this_func) -> void:
-		if visited.has(node.name):
+	var topo_visited: Dictionary = {}
+	var topo_in_progress: Dictionary = {}
+	var visit_node = func(node, this_func) -> void:
+		if topo_visited.has(node.name):
 			return
-		if on_stack.has(node.name):
+		if topo_in_progress.has(node.name):
 			push_warning("Circular dependency detected involving node: " + node.name)
 			return
-		on_stack[node.name] = true
+		topo_in_progress[node.name] = true
 		for conn in node.deps:
 			var dep_node = instances_by_name.get(conn.from_node)
 			if dep_node:
-				this_func.call(dep_node, on_stack, this_func)
-		on_stack.erase(node.name)
-		visited[node.name] = true
+				this_func.call(dep_node, this_func)
+		topo_in_progress.erase(node.name)
+		topo_visited[node.name] = true
 		ordered_nodes.append(node)
 
 	var finals = node_list.filter(func(node):
@@ -880,9 +881,43 @@ static func build_execution_order(node_list: Array, instances_by_name: Dictionar
 		return _is_topo_final_root(node)
 	)
 	for node in finals:
-		visit_node.call(node, {}, visit_node)
+		visit_node.call(node, visit_node)
+	_stabilize_variable_execution_order(ordered_nodes)
+	_stabilize_consumer_input_order(ordered_nodes)
 	return ordered_nodes
 
+
+# FlowNodeBase extends GraphNode (a Control, not RefCounted). evaluate_graph
+# instantiates the whole graph without ever adding the nodes to the tree, so
+# they must be freed explicitly — otherwise every runtime evaluation leaks the
+# full node graph (and loop.gd evaluates once per element).
+static func _free_node_instances(node_list: Array) -> void:
+	for node in node_list:
+		if is_instance_valid(node):
+			node.free()
+
+# Runtime args (e.g. FlowGraphNode3D.args) may hold raw primitives instead of
+# FlowData.Data. Wrap supported primitives into a single-entry Data whose
+# stream is named after the input param, so graph-input constants work at
+# runtime. Falsy primitives (0, 0.0, "") are valid values — hence the explicit
+# null/type checks instead of truthiness.
+static func _coerce_input_data(val, input_name: String):
+	if val == null:
+		return null
+	if val is FlowData.Data:
+		return val
+	var data_type = FlowNodeBase.getFlowDataTypeFromObject(val)
+	if data_type == FlowData.DataType.Invalid:
+		push_warning("evaluate_graph: input '%s' got unsupported runtime value of type %s — expected FlowData.Data or float/int/bool/String/Vector3/Color" % [input_name, type_string(typeof(val))])
+		return null
+	var data = load("res://addons/flow_nodes_editor/flow_data.gd").Data.new()
+	var container = data.addStream(input_name, data_type)
+	if container == null:
+		push_warning("evaluate_graph: could not wrap runtime input '%s' (data_type %d)" % [input_name, data_type])
+		return null
+	container.resize(1)
+	container[0] = val
+	return data
 
 static func evaluate_graph(graph: FlowGraphResource, input_data_map: Dictionary, parent_ctx: FlowData.EvaluationContext, runtime_params: Dictionary = {}, depth: int = 0) -> Dictionary:
 	if depth > 20:
@@ -904,21 +939,33 @@ static func evaluate_graph(graph: FlowGraphResource, input_data_map: Dictionary,
 		if not node_script:
 			push_error("Failed to load node script for template: %s" % template)
 			continue
-		var instance = node_script.new() as FlowNodeBase
+		var raw_instance = node_script.new()
+		var instance := raw_instance as FlowNodeBase
+		if instance == null:
+			push_error("Node script is not a FlowNodeBase: %s" % script_path)
+			if raw_instance is Node:
+				raw_instance.free()
+			continue
 		instance.name = name
 		instance.node_template = template
 		if not meta.is_empty() and instance.has_method("setup_from_flow_node_metadata"):
 			instance.call("setup_from_flow_node_metadata", template, meta)
 
-		# Initialize settings resource if defined
+		# Initialize settings resource if defined. Nodes without a settings
+		# class (e.g. merge_points) fall back to the base NodeSettings,
+		# mirroring the editor: the evaluator reads settings.disabled and
+		# settings.debug_enabled on every node.
 		if meta.is_empty():
 			meta = instance.getMeta()
 		if meta.has("settings") and meta.settings:
 			instance.settings = meta.settings.new()
+		else:
+			instance.settings = NodeSettings.new()
 
 		# Apply saved settings
-		dict_to_resource(n_data.settings, instance.settings, false)
-		_stabilize_missing_seed(instance.settings, name, template, n_data.settings)
+		var saved_settings = n_data.get("settings", {})
+		dict_to_resource(saved_settings, instance.settings, false)
+		_stabilize_missing_seed(instance.settings, name, template, saved_settings)
 		if instance.settings != null:
 			instance.settings.inspect_enabled = false
 			if instance.has_method("_sync_editor_state_snapshot"):
@@ -958,6 +1005,7 @@ static func evaluate_graph(graph: FlowGraphResource, input_data_map: Dictionary,
 	for key in runtime_params.keys():
 		ctx.runtime_params[key] = runtime_params[key]
 	ctx.runtime_params["__eval_depth"] = depth
+	ctx.set_meta("flow_eval_depth", depth)
 	_inherit_flow_variables(ctx, parent_ctx)
 	FlowVariableEval._mirror_variables_to_runtime(ctx)
 
@@ -977,7 +1025,7 @@ static func evaluate_graph(graph: FlowGraphResource, input_data_map: Dictionary,
 			specific_input_name = node.settings.name
 
 		if is_specific_input:
-			var val = input_data_map.get(specific_input_name, null)
+			var val = _coerce_input_data(input_data_map.get(specific_input_name, null), specific_input_name)
 			if val:
 				# Create a new Data object to rename/register the stream under the input's name
 				var target_data = load("res://addons/flow_nodes_editor/flow_data.gd").Data.new()
@@ -998,7 +1046,7 @@ static func evaluate_graph(graph: FlowGraphResource, input_data_map: Dictionary,
 			for i in range(graph.in_params.size()):
 				var param = graph.in_params[i]
 				if param:
-					var val = input_data_map.get(param.name, null)
+					var val = _coerce_input_data(input_data_map.get(param.name, null), param.name)
 					var target_data = load("res://addons/flow_nodes_editor/flow_data.gd").Data.new()
 					if val:
 						for stream_name in val.streams:
@@ -1041,7 +1089,7 @@ static func evaluate_graph(graph: FlowGraphResource, input_data_map: Dictionary,
 					node.inputs[conn.to_port] = src_bulk[conn.from_port]
 
 		node.preExecute(ctx)
-		if node.settings.disabled:
+		if node.settings != null and node.settings.disabled:
 			node.executedDisabled(ctx)
 		elif not FlowVariableEval.try_fast_execute(node, ctx, instances):
 			node.run(ctx)
@@ -1091,4 +1139,8 @@ static func evaluate_graph(graph: FlowGraphResource, input_data_map: Dictionary,
 					outputs[out_name] = node.inputs[0]
 	_publish_flow_variables(ctx, parent_ctx)
 	_publish_runtime_params(ctx, parent_ctx, runtime_params)
+
+	# Outputs are collected (FlowData.Data is RefCounted, so the references in
+	# `outputs` keep the data alive) — free the instanced node Controls now.
+	_free_node_instances(node_list)
 	return outputs

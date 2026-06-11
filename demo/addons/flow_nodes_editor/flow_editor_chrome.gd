@@ -233,7 +233,7 @@ static func apply_translations(refs: Refs) -> void:
 		elif control is Label:
 			(control as Label).text = FlowI18n.t(String(text_by_name[node_name]))
 	var tooltip_by_name := {
-		"ButtonExpandGraph": "Float and Maximize Graph Panel",
+		"ButtonExpandGraph": "Float Graph Panel",
 	}
 	for node_name in TOOLBAR_TOOLTIP_BY_NAME:
 		var control := _get_control(refs, node_name)
@@ -248,7 +248,7 @@ static func apply_translations(refs: Refs) -> void:
 		refs.open_graph_button.tooltip_text = FlowI18n.t("Open a FlowGraph resource")
 	if refs.expand_graph_button:
 		refs.expand_graph_button.text = ""
-		refs.expand_graph_button.tooltip_text = FlowI18n.t("Float and Maximize Graph Panel")
+		refs.expand_graph_button.tooltip_text = FlowI18n.t("Float Graph Panel")
 
 
 static func _get_control(refs: Refs, node_name: String) -> Control:
@@ -327,7 +327,9 @@ static func _style_expand_graph_button(btn: Button) -> void:
 	btn.expand_icon = false
 	if Engine.is_editor_hint():
 		var editor_theme := EditorInterface.get_editor_theme()
-		if editor_theme != null and editor_theme.has_icon("ExpandBottomDock", "EditorIcons"):
+		if editor_theme != null and editor_theme.has_icon("MakeFloating", "EditorIcons"):
+			btn.icon = editor_theme.get_icon("MakeFloating", "EditorIcons")
+		elif editor_theme != null and editor_theme.has_icon("ExpandBottomDock", "EditorIcons"):
 			btn.icon = editor_theme.get_icon("ExpandBottomDock", "EditorIcons")
 
 
