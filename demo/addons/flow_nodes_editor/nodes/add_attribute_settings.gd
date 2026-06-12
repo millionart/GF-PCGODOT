@@ -4,7 +4,36 @@ extends NodeSettings
 
 @export_group("Add Attribute")
 
-@export var name : String = "new_attr"
+var _syncing_output_target := false
+
+@export var input_source : String = "Attribute":
+	set(new_value):
+		input_source = new_value.strip_edges()
+		emit_changed()
+
+@export var output_target : String = "new_attr":
+	set(new_value):
+		output_target = new_value.strip_edges()
+		if not _syncing_output_target:
+			_syncing_output_target = true
+			name = output_target
+			_syncing_output_target = false
+		emit_changed()
+
+@export var name : String = "new_attr":
+	set(new_value):
+		name = new_value.strip_edges()
+		if not _syncing_output_target:
+			_syncing_output_target = true
+			output_target = name
+			_syncing_output_target = false
+		emit_changed()
+
+@export var copy_all_attributes : bool = false:
+	set(new_value):
+		copy_all_attributes = new_value
+		notify_property_list_changed()
+
 @export var data_type : FlowData.DataType = FlowData.DataType.Float:
 	set(new_value):
 		data_type = new_value
@@ -17,13 +46,25 @@ extends NodeSettings
 @export var cte_color : Color = Color.WHITE
 @export var cte_resource : Resource
 @export var cte_string : String = ""
+@export var attributes = null
 
 func _init():
 	super._init()
 	resource_name = "Add Attribute"
 
+func _validate_property(property : Dictionary) -> void:
+	if property.name == "name":
+		property.usage &= ~PROPERTY_USAGE_EDITOR
+
 func exposeParam( name : String ):
 	var name_lc = FlowData.DataType.keys()[ data_type ].to_lower()
 	if name.begins_with( "cte_" ):
 		return name == "cte_" + name_lc
+	if name == "name" or name == "attributes":
+		return false
 	return true
+
+func _get_attribute_selector_props() -> Array[Dictionary]:
+	return [
+		{ "prop": "input_source", "port": 2 },
+	]
