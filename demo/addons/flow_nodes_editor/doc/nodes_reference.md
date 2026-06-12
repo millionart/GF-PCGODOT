@@ -108,7 +108,7 @@ A complete reference of all available nodes in the PCGODOT framework, grouped by
 | **Polygon Operation** | [polygon_operation.gd](../nodes/polygon_operation.gd) | UE naming alias for polygon clipping/filter operations. |
 | **Sample Spline** | [sample_spline.gd](../nodes/sample_spline.gd) | No description available. |
 | **Scan Splines** | [scan_splines.gd](../nodes/scan_splines.gd) | No description available. |
-| **Split Splines** | [split_splines.gd](../nodes/split_splines.gd) | Converts Path3D splines into segment-center points with start/end metadata. |
+| **Spline to Segment** | [spline_to_segment.gd](../nodes/spline_to_segment.gd) | Converts Path3D splines into segment-center points with start/end metadata. |
 
 ## 📂 Utility
 
@@ -170,4 +170,3 @@ A complete reference of all available nodes in the PCGODOT framework, grouped by
 | **Tags** | [tags_mutate.gd](../nodes/tags_mutate.gd) | Adds, removes, or replaces FlowData tags. |
 | **Transform** | [transform.gd](../nodes/transform.gd) | Applies the random translation/rotation/scale to each point |
 | **Transform Points** | [transform_points.gd](../nodes/transform_points.gd) | Godot-facing alias of Transform for point data. |
-

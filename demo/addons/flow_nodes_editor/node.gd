@@ -904,6 +904,8 @@ func getSettingValue( ctx : FlowData.EvaluationContext, in_name : String, defaul
 						var new_value = stream.container[0]
 						if trace:
 							print( "  -> Using %s = %s" % [ in_name, new_value ])
+						if typeof(value) == TYPE_BOOL and typeof(new_value) == TYPE_INT:
+							return bool(new_value)
 						if typeof( new_value ) != typeof( value ):
 							push_warning( "  Type of %s (%d) does not match the expected type (%d)" % [ in_name, typeof(new_value), typeof(value) ])
 
@@ -1063,11 +1065,20 @@ func _getInputForBulkInContext( ctx : FlowData.EvaluationContext, bulk_idx : int
 			bulk_counter += 1
 	return null
 
+func _is_broadcastable_input(port_idx : int) -> bool:
+	var ins = getMeta().get("ins", [])
+	if port_idx < 0 or port_idx >= ins.size():
+		return false
+	return bool(ins[port_idx].get("broadcastable", false))
+
 func readAllInputsForBulk( ctx : FlowData.EvaluationContext, bulk_idx : int ):
 	inputs = []
 	var num_inputs : int = getMeta().ins.size()
 	for port_idx in range( num_inputs ):
-		inputs.append( _getInputForBulkInContext( ctx, bulk_idx, port_idx ))
+		var input_data = _getInputForBulkInContext( ctx, bulk_idx, port_idx )
+		if input_data == null and bulk_idx > 0 and _is_broadcastable_input(port_idx):
+			input_data = _getInputForBulkInContext( ctx, 0, port_idx )
+		inputs.append( input_data )
 	
 	# Read the options inputs, assuming they only generate a single bulk
 	var option_idx = num_inputs

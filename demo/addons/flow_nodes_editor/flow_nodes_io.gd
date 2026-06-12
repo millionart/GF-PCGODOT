@@ -919,6 +919,19 @@ static func _coerce_input_data(val, input_name: String):
 	container[0] = val
 	return data
 
+static func _evaluation_input_count(node: FlowNodeBase, graph: FlowGraphResource) -> int:
+	var num_ins: int = node.getMeta().get("ins", []).size()
+	if node.node_template == "output":
+		if "out_params" in graph and graph.out_params.size() > 0:
+			num_ins = graph.out_params.size()
+		else:
+			num_ins = max(num_ins, 1)
+	for conn in node.deps:
+		if conn.get("virtual_variable", false):
+			continue
+		num_ins = max(num_ins, int(conn.to_port) + 1)
+	return num_ins
+
 static func evaluate_graph(graph: FlowGraphResource, input_data_map: Dictionary, parent_ctx: FlowData.EvaluationContext, runtime_params: Dictionary = {}, depth: int = 0) -> Dictionary:
 	if depth > 20:
 		push_error("PCG graph evaluation exceeded maximum recursion depth (20). Check for circular subgraph references.")
@@ -949,6 +962,7 @@ static func evaluate_graph(graph: FlowGraphResource, input_data_map: Dictionary,
 			continue
 		instance.name = name
 		instance.node_template = template
+		instance.args_ports_by_name = n_data.get("args_port", {}).duplicate(true)
 		if not meta.is_empty() and instance.has_method("setup_from_flow_node_metadata"):
 			instance.call("setup_from_flow_node_metadata", template, meta)
 
@@ -1073,12 +1087,7 @@ static func evaluate_graph(graph: FlowGraphResource, input_data_map: Dictionary,
 			continue
 
 		node.inputs.clear()
-		var num_ins = node.getMeta().get("ins", []).size()
-		if node.node_template == "output":
-			if "out_params" in graph and graph.out_params.size() > 0:
-				num_ins = graph.out_params.size()
-			else:
-				num_ins = max(num_ins, 1)
+		var num_ins := _evaluation_input_count(node, graph)
 		node.inputs.resize(num_ins)
 		for conn in node.deps:
 			if conn.get("virtual_variable", false):

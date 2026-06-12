@@ -30,8 +30,8 @@ func _test_create_constant_outputs_single_attribute_set() -> bool:
 	node.settings.output_target = "category"
 	node.settings.data_type = FlowDataScript.DataType.String
 	node.settings.cte_string = "Alpha"
-	node.deps = []
-	node.dependants = []
+	node.deps = _empty_connections()
+	node.dependants = _empty_connections()
 	node.inputs = []
 
 	var ctx = FlowDataScript.EvaluationContext.new()
@@ -48,8 +48,8 @@ func _test_add_attribute_requires_input() -> bool:
 	var node = AddAttributeNode.new()
 	node.name = "add_attribute"
 	node.settings = AddAttributeSettings.new()
-	node.deps = []
-	node.dependants = []
+	node.deps = _empty_connections()
+	node.dependants = _empty_connections()
 	node.inputs = []
 
 	_execute_node(node)
@@ -96,8 +96,8 @@ func _test_add_attribute_keeps_legacy_constant_port_position() -> bool:
 	node.settings.output_target = "weight"
 	node.settings.data_type = FlowDataScript.DataType.Float
 	node.settings.cte_float = 1.0
-	node.deps = []
-	node.dependants = []
+	node.deps = _empty_connections()
+	node.dependants = _empty_connections()
 	node.inputs = [in_data, legacy_cte_input]
 	node.args_ports_by_name = { "cte_float": { "port": 1, "connected": true } }
 
@@ -155,8 +155,8 @@ func _make_add_attribute(in_data : FlowData.Data, attributes_data):
 	var node = AddAttributeNode.new()
 	node.name = "add_attribute"
 	node.settings = AddAttributeSettings.new()
-	node.deps = []
-	node.dependants = []
+	node.deps = _empty_connections()
+	node.dependants = _empty_connections()
 	node.inputs = [in_data, null, attributes_data]
 	return node
 
@@ -174,6 +174,10 @@ func _get_output(node):
 	if bulk.is_empty():
 		return null
 	return bulk[0]
+
+
+func _empty_connections() -> Array[Dictionary]:
+	return []
 
 
 func _expect_ints(data, stream_name : String, expected : PackedInt32Array, message : String) -> bool:

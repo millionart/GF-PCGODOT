@@ -5,7 +5,7 @@ func _init():
 	meta_node = {
 		"title" : "Filter",
 		"settings" : FilterNodeSettings,
-		"ins" : [{ "label": "In A" }, { "label": "In B" }], 
+		"ins" : [{ "label": "In A" }, { "label": "In B", "broadcastable": true }],
 		"outs" : [{ "label" : "True" }, { "label" : "False" }],
 		"hide_inputs" : true,
 		"aliases" : ["Filter Attribute Elements"],

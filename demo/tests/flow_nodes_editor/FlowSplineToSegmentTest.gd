@@ -1,8 +1,8 @@
 extends SceneTree
 
 const FlowDataScript = preload("res://addons/flow_nodes_editor/flow_data.gd")
-const SplineToSegmentNode = preload("res://addons/flow_nodes_editor/nodes/split_splines.gd")
-const SplineToSegmentSettings = preload("res://addons/flow_nodes_editor/nodes/split_splines_settings.gd")
+const SplineToSegmentNode = preload("res://addons/flow_nodes_editor/nodes/spline_to_segment.gd")
+const SplineToSegmentSettings = preload("res://addons/flow_nodes_editor/nodes/spline_to_segment_settings.gd")
 
 
 func _init() -> void:
@@ -30,6 +30,7 @@ func _test_node_title_matches_ue() -> bool:
 
 func _test_outputs_one_point_per_control_point_segment() -> bool:
 	var path := Path3D.new()
+	path.transform.origin = Vector3(2.0, 0.0, 3.0)
 	path.curve = Curve3D.new()
 	path.curve.add_point(Vector3.ZERO)
 	path.curve.add_point(Vector3(10.0, 0.0, 0.0))
@@ -51,7 +52,7 @@ func _test_outputs_one_point_per_control_point_segment() -> bool:
 
 	var out_data = _get_output(node)
 	var passed := (
-		_expect_vectors(out_data, str(FlowDataScript.AttrPosition), PackedVector3Array([Vector3(5.0, 0.0, 0.0), Vector3(10.0, 0.0, 5.0)]), "Segment centers should come from adjacent control points")
+		_expect_vectors(out_data, str(FlowDataScript.AttrPosition), PackedVector3Array([Vector3(7.0, 0.0, 3.0), Vector3(12.0, 0.0, 8.0)]), "Segment centers should come from adjacent control points")
 		and _expect_vectors(out_data, str(FlowDataScript.AttrSize), PackedVector3Array([Vector3(10.0, 1.0, 1.0), Vector3(10.0, 1.0, 1.0)]), "Segment sizes should use full segment length on local X")
 		and _expect_ints(out_data, "SegmentIndex", PackedInt32Array([0, 1]), "SegmentIndex should match segment order")
 		and _expect_ints(out_data, "SegmentPreviousIndex", PackedInt32Array([-1, 0]), "SegmentPreviousIndex should encode open-start boundary")

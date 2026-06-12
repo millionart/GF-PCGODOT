@@ -1,7 +1,7 @@
 @tool
 extends FlowNodeBase
 
-const SplineToSegmentSettings = preload("res://addons/flow_nodes_editor/nodes/split_splines_settings.gd")
+const SplineToSegmentSettings = preload("res://addons/flow_nodes_editor/nodes/spline_to_segment_settings.gd")
 
 const ATTR_PREVIOUS_TANGENT := "PreviousTangent"
 const ATTR_NEXT_TANGENT := "NextTangent"
@@ -16,7 +16,7 @@ func _init():
 	meta_node = {
 		"title" : "Spline to Segment",
 		"settings" : SplineToSegmentSettings,
-		"aliases" : ["Spline To Segment", "SplineToSegment", "Split Splines"],
+		"aliases" : ["Spline To Segment", "SplineToSegment"],
 		"category" : "Spatial",
 		"ins" : [{ "label" : "Input", "data_type" : FlowData.DataType.NodePath }],
 		"outs" : [{ "label" : "Out" }],
@@ -76,7 +76,7 @@ func execute(ctx : FlowData.EvaluationContext):
 			var p1 := _control_point_world_position(path, next_idx)
 			var delta := p1 - p0
 			var center := (p0 + p1) * 0.5
-			var basis := _basis_from_x_axis(direction, path.global_transform.basis.y)
+			var basis := _basis_from_x_axis(direction, _path_transform(path).basis.y)
 			positions.append(center)
 			rotations.append(FlowData.basisToEuler(basis))
 			sizes.append(Vector3(delta.length(), 1.0, 1.0))
@@ -134,7 +134,19 @@ func _last_point_duplicates_first(path : Path3D) -> bool:
 	return path.curve.get_point_position(0).is_equal_approx(path.curve.get_point_position(point_count - 1))
 
 func _control_point_world_position(path : Path3D, point_idx : int) -> Vector3:
-	return path.global_transform * path.curve.get_point_position(point_idx)
+	return _path_transform(path) * path.curve.get_point_position(point_idx)
+
+func _path_transform(path : Path3D) -> Transform3D:
+	if path.is_inside_tree():
+		return path.global_transform
+
+	var path_transform := path.transform
+	var parent := path.get_parent()
+	while parent is Node3D:
+		var parent_3d := parent as Node3D
+		path_transform = parent_3d.transform * path_transform
+		parent = parent_3d.get_parent()
+	return path_transform
 
 func _basis_from_x_axis(x_axis : Vector3, up_axis : Vector3) -> Basis:
 	var x := x_axis.normalized()
