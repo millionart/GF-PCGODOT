@@ -94,6 +94,7 @@ var _last_debug_enabled := false
 var _last_inspect_enabled := false
 
 func _ready():
+	auto_translate_mode = Node.AUTO_TRANSLATE_MODE_DISABLED
 	ignore_invalid_connection_type = true
 	checkDrawDebug()
 	refreshInspectMark()
