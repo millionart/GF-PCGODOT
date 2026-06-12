@@ -51,7 +51,9 @@ const FLOW_GRAPH_EDIT_SCRIPT := preload("res://addons/flow_nodes_editor/flow_gra
 const directory_path := FlowNodeRegistry.DEFAULT_NODE_DIRECTORY
 const FAST_GRAPH_LOAD_NODE_THRESHOLD := 24
 const EDITOR_SETTING_AUTO_REGEN := "addons/flow_nodes_editor/auto_generate"
+const EDITOR_SETTING_COLOR_NODES := "addons/flow_nodes_editor/color_nodes"
 const EDITOR_SETTING_NATIVE_GRAPH_GRID := "addons/flow_nodes_editor/use_native_graph_grid"
+const EDITOR_SETTING_NODE_TRANSLATION := "addons/flow_nodes_editor/node_translation"
 const EDITOR_SETTING_HIDE_INSPECTOR_TITLE := "addons/flow_nodes_editor/hide_inspector_title"
 const EDITOR_SETTING_HIDE_RESOURCE_BUILTIN_ROWS := "addons/flow_nodes_editor/hide_resource_builtin_rows"
 const EDITOR_SETTING_TRACK_EXTERNAL_EDITS := "addons/flow_nodes_editor/track_external_edits"
@@ -2452,10 +2454,22 @@ func _load_editor_settings():
 		"name": EDITOR_SETTING_AUTO_REGEN,
 		"type": TYPE_BOOL,
 	})
+	if not editor_settings.has_setting(EDITOR_SETTING_COLOR_NODES):
+		editor_settings.set_setting(EDITOR_SETTING_COLOR_NODES, color_nodes)
+	editor_settings.add_property_info({
+		"name": EDITOR_SETTING_COLOR_NODES,
+		"type": TYPE_BOOL,
+	})
 	if not editor_settings.has_setting(EDITOR_SETTING_NATIVE_GRAPH_GRID):
 		editor_settings.set_setting(EDITOR_SETTING_NATIVE_GRAPH_GRID, use_native_graph_grid)
 	editor_settings.add_property_info({
 		"name": EDITOR_SETTING_NATIVE_GRAPH_GRID,
+		"type": TYPE_BOOL,
+	})
+	if not editor_settings.has_setting(EDITOR_SETTING_NODE_TRANSLATION):
+		editor_settings.set_setting(EDITOR_SETTING_NODE_TRANSLATION, FlowI18n.is_node_translation_enabled())
+	editor_settings.add_property_info({
+		"name": EDITOR_SETTING_NODE_TRANSLATION,
 		"type": TYPE_BOOL,
 	})
 	if not editor_settings.has_setting(EDITOR_SETTING_HIDE_INSPECTOR_TITLE):
@@ -2477,7 +2491,9 @@ func _load_editor_settings():
 		"type": TYPE_BOOL,
 	})
 	auto_regen = bool(editor_settings.get_setting(EDITOR_SETTING_AUTO_REGEN))
+	color_nodes = bool(editor_settings.get_setting(EDITOR_SETTING_COLOR_NODES))
 	use_native_graph_grid = bool(editor_settings.get_setting(EDITOR_SETTING_NATIVE_GRAPH_GRID))
+	FlowI18n.set_node_translation_enabled(bool(editor_settings.get_setting(EDITOR_SETTING_NODE_TRANSLATION)))
 	hide_inspector_title = bool(editor_settings.get_setting(EDITOR_SETTING_HIDE_INSPECTOR_TITLE))
 	hide_resource_builtin_rows = bool(editor_settings.get_setting(EDITOR_SETTING_HIDE_RESOURCE_BUILTIN_ROWS))
 	track_external_edits = bool(editor_settings.get_setting(EDITOR_SETTING_TRACK_EXTERNAL_EDITS))
@@ -2487,7 +2503,9 @@ func _save_editor_settings():
 	if not editor_settings:
 		return
 	editor_settings.set_setting(EDITOR_SETTING_AUTO_REGEN, auto_regen)
+	editor_settings.set_setting(EDITOR_SETTING_COLOR_NODES, color_nodes)
 	editor_settings.set_setting(EDITOR_SETTING_NATIVE_GRAPH_GRID, use_native_graph_grid)
+	editor_settings.set_setting(EDITOR_SETTING_NODE_TRANSLATION, FlowI18n.is_node_translation_enabled())
 	editor_settings.set_setting(EDITOR_SETTING_HIDE_INSPECTOR_TITLE, hide_inspector_title)
 	editor_settings.set_setting(EDITOR_SETTING_HIDE_RESOURCE_BUILTIN_ROWS, hide_resource_builtin_rows)
 	editor_settings.set_setting(EDITOR_SETTING_TRACK_EXTERNAL_EDITS, track_external_edits)
@@ -2613,6 +2631,7 @@ func _notification(what: int) -> void:
 
 func _on_node_translation_toggled(toggled_on: bool):
 	FlowI18n.set_node_translation_enabled(toggled_on)
+	_save_editor_settings()
 	if _chrome_refs != null:
 		FlowEditorChrome.apply_translations(_chrome_refs)
 	if search_add_node_popup:
@@ -6488,6 +6507,7 @@ func _on_graph_edit_end_node_move():
 
 func _on_color_nodes_toggled(toggled_on: bool) -> void:
 	color_nodes = toggled_on
+	_save_editor_settings()
 	var color_nodes_checkbox := toolbar_hbox.get_node_or_null("CheckColorNodes") as CheckBox
 	if color_nodes_checkbox and color_nodes_checkbox.button_pressed != toggled_on:
 		color_nodes_checkbox.set_pressed_no_signal(toggled_on)
