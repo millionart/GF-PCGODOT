@@ -71,6 +71,10 @@ layout_mode = 2
 layout_mode = 2
 size_flags_horizontal = 3
 
+[node name="ButtonLocateNode" type="Button" parent="VBoxContainer/ScrollContainer/HBoxContainer"]
+custom_minimum_size = Vector2(34, 32)
+layout_mode = 2
+
 [node name="ButtonArrange" type="Button" parent="VBoxContainer/ScrollContainer/HBoxContainer"]
 custom_minimum_size = Vector2(34, 32)
 layout_mode = 2

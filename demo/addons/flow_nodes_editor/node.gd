@@ -593,7 +593,7 @@ static func getColorForFlowDataType( data_type : FlowData.DataType ) -> Color:
 			return Color("1685ff")
 		FlowData.DataType.NodePath:
 			return Color("14b8a6")
-	return Color("7a8494")
+	return Color.WHITE
 
 static func getGdScriptTypeForFlowDataType( data_type : FlowData.DataType ) -> int:
 	match( data_type ):
@@ -797,10 +797,9 @@ func initFromScript():
 			var data_type = in_data.get( "data_type", FlowData.DataType.Invalid )
 			if data_type == FlowData.DataType.Invalid and in_data.has( "type"):
 				data_type = getFlowDataTypeFromGdScriptType( in_data.type )
-			if data_type != FlowData.DataType.Invalid:
-				var color = getColorForFlowDataType( data_type )	
-				set_slot_color_left( idx, color )
-				set_slot_type_left( idx, data_type )
+			var color = getColorForFlowDataType( data_type )
+			set_slot_color_left( idx, color )
+			set_slot_type_left( idx, data_type )
 				
 			in_data.port = idx
 			ctrl.setData( in_data )
@@ -823,10 +822,9 @@ func initFromScript():
 					data_type = getFlowDataTypeFromGdScriptType( out_data.type )
 				if data_type == FlowData.DataType.Invalid and settings and "data_type" in settings and node_template != "add_attribute" and node_template != "attribute_random":
 					data_type = settings.data_type
-				if data_type != FlowData.DataType.Invalid:
-					var color = getColorForFlowDataType( data_type )	
-					set_slot_color_right( idx, color )
-					set_slot_type_right( idx, data_type )					
+				var color = getColorForFlowDataType( data_type )
+				set_slot_color_right( idx, color )
+				set_slot_type_right( idx, data_type )
 					
 		else:
 			lbl_out.text = ""

@@ -67,7 +67,7 @@ func _get_connected_input_data_type() -> FlowData.DataType:
 		var source_node = editor.gedit_nodes_by_name.get(source[0]) as FlowNodeBase
 		if source_node == null:
 			continue
-		var data_type := int(source_node.get_output_port_type(int(source[1])))
+		var data_type := _get_explicit_source_port_data_type(source_node, int(source[1]))
 		if data_type != FlowData.DataType.Invalid:
 			return data_type
 		if source_node.has_method("getVariableDataType"):
@@ -75,6 +75,16 @@ func _get_connected_input_data_type() -> FlowData.DataType:
 			if data_type != FlowData.DataType.Invalid:
 				return data_type
 	return FlowData.DataType.Invalid
+
+func _get_explicit_source_port_data_type(source_node: FlowNodeBase, source_port: int) -> FlowData.DataType:
+	var source_meta: Dictionary = source_node.getMeta()
+	var output_ports: Array = source_meta.get("outs", [])
+	if source_port < 0 or source_port >= output_ports.size():
+		return FlowData.DataType.Invalid
+	var output_port = output_ports[source_port]
+	if not (output_port is Dictionary) or not output_port.has("data_type"):
+		return FlowData.DataType.Invalid
+	return int(output_port.get("data_type", FlowData.DataType.Invalid))
 
 func _get_generated_data_type() -> FlowData.DataType:
 	for bulk_idx in range(generated_bulks.size() - 1, -1, -1):

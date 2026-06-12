@@ -55,7 +55,7 @@ A complete reference of all available nodes in the PCGODOT framework, grouped by
 | **Grid Boundary** | [grid_boundary.gd](../nodes/grid_boundary.gd) | Extracts exposed edge and corner points from filled grid cells. |
 | **Grid Connect Points** | [grid_connect_points.gd](../nodes/grid_connect_points.gd) | Connects ordered points with orthogonal grid-cell paths on the XZ plane. |
 | **Grid Fill Bounds** | [grid_fill_bounds.gd](../nodes/grid_fill_bounds.gd) | Creates one point per grid cell inside input bounds, or inside configured bounds when no input is connected. |
-| **Noise** | [noise.gd](../nodes/noise.gd) | Outputs an attribute with Noise values |
+| **Spatial Noise** | [noise.gd](../nodes/noise.gd) | Applies UE PCG-style 2D spatial noise to point data. |
 | **Relax** | [relax.gd](../nodes/relax.gd) | Relax distance between points |
 | **Self Pruning** | [self_pruning.gd](../nodes/self_pruning.gd) | Rejects points that overlap previous points, or removes duplicate grid-cell points. |
 | **Volume Sampler** | [volume_sampler.gd](../nodes/volume_sampler.gd) | Samples points inside incoming point volumes (Volume Sampler alias). |

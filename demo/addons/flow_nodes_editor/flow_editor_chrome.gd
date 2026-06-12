@@ -11,6 +11,7 @@ const TOOLBAR_ICON_BY_NAME := {
 	"ButtonReload": "Reload",
 	"ButtonAnalyze": "Search",
 	"ButtonRegenerate": "RandomNumberGenerator",
+	"ButtonLocateNode": "Search",
 	"ButtonArrange": "GraphEdit:layout",
 	"ButtonMinimap": "GridMinimap",
 	"ButtonInputs": "GraphEdit",
@@ -22,6 +23,7 @@ const TOOLBAR_TOOLTIP_BY_NAME := {
 	"ButtonReload": "Reload the current FlowGraph resource",
 	"ButtonAnalyze": "Inspect selected node raw data (A)",
 	"ButtonRegenerate": "Regenerate the graph output",
+	"ButtonLocateNode": "Paste a node id from the clipboard and focus that node.",
 	"ButtonArrange": "Automatically arrange selected nodes.",
 	"ButtonMinimap": "Toggle the graph minimap.",
 	"ButtonInputs": "Edit graph inputs",
@@ -140,6 +142,7 @@ static func connect_signals(refs: Refs) -> void:
 	_connect_pressed(refs, "ButtonReload", host._on_button_reload_pressed)
 	_connect_pressed(refs, "ButtonAnalyze", host._on_button_analyze_pressed)
 	_connect_pressed(refs, "ButtonRegenerate", host._on_button_regenerate_pressed)
+	_connect_pressed(refs, "ButtonLocateNode", host._on_button_locate_node_pressed)
 	_connect_pressed(refs, "ButtonArrange", host._on_button_arrange_pressed)
 	_connect_button_toggled(refs, "ButtonMinimap", host._on_button_minimap_toggled)
 	_connect_pressed(refs, "ButtonInputs", host._on_button_inputs_pressed)

@@ -108,12 +108,14 @@ var node_types_full_scan := false
 var popup_menu_inputs : PopupMenu
 var popup_menu_outputs : PopupMenu
 var popup_on_over_input = null
+var context_menu_node_name := ""
 const IDM_PROMOTE_TO_PARAMETER : int = 100
 const IDM_COLLAPSE_TO_SUBGRAPH : int = 200
 const IDM_NODE_DELETE : int = 300
 const IDM_NODE_CUT : int = 301
 const IDM_NODE_COPY : int = 302
 const IDM_NODE_DUPLICATE : int = 303
+const IDM_NODE_COPY_ID : int = 304
 const RIGHT_DRAG_PAN_THRESHOLD := 4.0
 const COMMENT_FRAME_CONTROLS_HEIGHT := 28.0
 const COMMENT_FRAME_CONTROLS_MARGIN := 8.0
@@ -2166,6 +2168,19 @@ func _on_button_arrange_pressed() -> void:
 	if gedit == null:
 		return
 	gedit.arrange_nodes()
+
+
+func _on_button_locate_node_pressed() -> void:
+	var node_id := _extract_node_id_from_text(DisplayServer.clipboard_get())
+	if node_id.is_empty():
+		update_status_bar(FlowI18n.t("Clipboard does not contain a node id"))
+		return
+	var node := _find_graph_node_by_id(node_id)
+	if node == null:
+		update_status_bar(FlowI18n.t("Node id not found: %s") % node_id)
+		return
+	focusGraphNode(node, true, true)
+	update_status_bar(FlowI18n.t("Located node: %s") % node_id)
 
 
 func _on_button_minimap_toggled(toggled_on: bool) -> void:
@@ -4329,7 +4344,7 @@ func _open_context_menu_for_right_click(at_position: Vector2) -> void:
 		_select_graph_element_for_context_menu(graph_element)
 		if graph_element is GraphFrame:
 			return
-		_open_node_context_menu(at_position)
+		_open_node_context_menu(at_position, graph_element as GraphNode)
 		return
 	_open_graph_context_menu(at_position)
 
@@ -4358,11 +4373,13 @@ func _select_graph_element_for_context_menu(graph_element: Node) -> void:
 		graph_element.selected = true
 	_inspect_graph_element(graph_element)
 
-func _open_node_context_menu(at_position: Vector2) -> void:
+func _open_node_context_menu(at_position: Vector2, graph_node: GraphNode) -> void:
+	context_menu_node_name = String(graph_node.name) if graph_node != null else ""
 	var node_menu := _create_node_context_menu()
 	add_child(node_menu)
 	node_menu.id_pressed.connect(_on_node_context_menu_id_pressed)
 	node_menu.popup_hide.connect(func():
+		context_menu_node_name = ""
 		node_menu.queue_free()
 	)
 	node_menu.position = get_screen_position() + at_position + Vector2(20, 20)
@@ -4382,6 +4399,7 @@ func _populate_node_context_menu(node_menu: PopupMenu) -> void:
 		FlowI18n.t("Collapse selected nodes into a separate PCGGraph asset.")
 	)
 	node_menu.set_item_disabled(collapse_idx, getSelectedNodes().is_empty())
+	node_menu.add_item(FlowI18n.t("Copy Node ID"), IDM_NODE_COPY_ID)
 	node_menu.add_separator("", -1)
 	node_menu.add_item(FlowI18n.t("Delete"), IDM_NODE_DELETE)
 	node_menu.add_item(FlowI18n.t("Cut"), IDM_NODE_CUT)
@@ -4400,6 +4418,20 @@ func _on_node_context_menu_id_pressed(id: int) -> void:
 			_on_graph_edit_copy_nodes_request()
 		IDM_NODE_DUPLICATE:
 			_on_graph_edit_duplicate_nodes_request()
+		IDM_NODE_COPY_ID:
+			_copy_context_node_id_to_clipboard()
+
+func _copy_context_node_id_to_clipboard() -> void:
+	var node_id := context_menu_node_name.strip_edges()
+	if node_id.is_empty():
+		var selected_nodes := getSelectedNodes()
+		if selected_nodes.size() == 1:
+			node_id = String(selected_nodes[0].name)
+	if node_id.is_empty():
+		update_status_bar(FlowI18n.t("No node id to copy"))
+		return
+	DisplayServer.clipboard_set(node_id)
+	update_status_bar(FlowI18n.t("Copied node id: %s") % node_id)
 
 func _open_graph_context_menu(at_position: Vector2):
 	local_drop_position = at_position
@@ -5376,6 +5408,35 @@ func panToGraphNode(node: GraphNode, select_node: bool = false) -> bool:
 	var target_center := node.position_offset + node.size * 0.5
 	gedit.scroll_offset = target_center * gedit.zoom - gedit.size * 0.5
 	return true
+
+func _find_graph_node_by_id(node_id: String) -> GraphNode:
+	var normalized_id := node_id.strip_edges()
+	if normalized_id.is_empty() or gedit == null:
+		return null
+	var node := gedit_nodes_by_name.get(normalized_id, null) as GraphNode
+	if node != null and is_instance_valid(node):
+		return node
+	node = gedit.get_node_or_null(NodePath(normalized_id)) as GraphNode
+	if node != null and is_instance_valid(node):
+		return node
+	for child in gedit.get_children():
+		node = child as GraphNode
+		if node != null and String(node.name) == normalized_id:
+			return node
+	return null
+
+func _extract_node_id_from_text(text: String) -> String:
+	var trimmed_text := text.strip_edges()
+	if trimmed_text.is_empty():
+		return ""
+	var regex := RegEx.new()
+	var err := regex.compile("(?:^|[^A-Za-z0-9_])(id_[0-9]+_[A-Za-z0-9_]+)(?:$|[^A-Za-z0-9_])")
+	if err != OK:
+		return trimmed_text
+	var result := regex.search(trimmed_text)
+	if result == null:
+		return trimmed_text
+	return result.get_string(1)
 
 func focusGraphNode(node: GraphNode, select_node: bool = true, flash_node: bool = true) -> bool:
 	if not panToGraphNode(node, select_node):
