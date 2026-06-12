@@ -20,6 +20,7 @@ func _init():
 	}
 	
 var _container
+var _container_data_type : FlowData.DataType = FlowData.DataType.Invalid
 var _expression : Expression
 var _in_size : int
 var _out_data : FlowData.Data
@@ -59,16 +60,17 @@ func evaluateAndSaveResult( idx : int, values : Array ):
 		if _container == null:
 			var flow_data_type = getFlowDataTypeFromGdScriptType( typeof( result ))
 			if flow_data_type != FlowData.DataType.Invalid:
-				var stream = newStream( _in_size, settings.out_name, result, flow_data_type )
+				_container = FlowData.Data.newContainerOfType(flow_data_type)
+				_container.resize(_in_size)
+				_container_data_type = flow_data_type
 				if settings.trace:
-					print( "Created container of type %d %s" % [ flow_data_type, stream ])
-				_container = stream.container
+					print( "Created container of type %d %s" % [ flow_data_type, _container ])
 			else:
 				setError( "Failed to identify type of expression result at index %d" % idx )
 				return false
 		if settings.trace:
 			print( "Added[%d] = %s" % [ idx, result ])
-		_container[idx] = result
+		FlowData.Data.writeValue(_container, idx, result, _container_data_type)
 		return true
 	setError( _expression.get_error_text() )	
 	return false
@@ -86,6 +88,7 @@ func execute( ctx : FlowData.EvaluationContext ):
 	
 	_expression = Expression.new()
 	_container = null
+	_container_data_type = FlowData.DataType.Invalid
 	
 	var names = ["Index", "Size"]
 	names.append_array( settings.args.keys() )
@@ -131,7 +134,7 @@ func execute( ctx : FlowData.EvaluationContext ):
 	if _container != null:
 		if settings.trace:
 			print( "Registering stream %s with %s" % [ settings.out_name, _container ])
-		var err_msg = _out_data.registerStream( settings.out_name, _container )
+		var err_msg = _out_data.registerStream( settings.out_name, _container, _container_data_type )
 		if err_msg:
 			setError( err_msg )
 

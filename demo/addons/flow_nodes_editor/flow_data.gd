@@ -27,6 +27,7 @@ const AttrSize     : StringName = &"size"
 const AttrDensity  : StringName = &"density"	# Float, 0..1, soft existence probability (UE $Density)
 const AttrSeed     : StringName = &"seed"		# Int, per-point deterministic seed (UE $Seed)
 const AttrNormal   : StringName = &"normal"		# Vector, surface normal where known
+const AttrIndex    : StringName = &"$index"		# Int, implicit row index (UE $Index)
 
 class EvaluationContext:
 	var owner : FlowGraphNode3D
@@ -176,8 +177,11 @@ class Data:
 			_:
 				push_error( "writeValue(%d) type not supported" % [ data_type ])
 	
-	func numFields() -> int:
-		return streams.size()
+	func numFields( include_implicit : bool = false ) -> int:
+		var count := streams.size()
+		if include_implicit and not streams.has( FlowData.AttrIndex ):
+			count += 1
+		return count
 		
 	func size() -> int:
 		if streams.size() == 0:
@@ -185,17 +189,33 @@ class Data:
 		var key0 = streams.keys()[0]
 		return streams[ key0 ].container.size()
 	
-	func hasStream( name : StringName ) -> bool:
-		return streams.has( name )
+	func hasStream( name : String ) -> bool:
+		return streams.has( name ) or isIndexStreamName( name )
 		
-	func hasStreamOfType( name : StringName, data_type : DataType ) -> bool:
-		return streams.has( name ) and streams[ name ].data_type == data_type
+	func hasStreamOfType( name : String, data_type : DataType ) -> bool:
+		var stream = streams.get( name, null )
+		if stream != null:
+			return stream.data_type == data_type
+		if isIndexStreamName( name ):
+			return data_type == DataType.Int
+		return false
 	
 	func getContainerChecked( name : String, data_type : DataType ):
-		var stream = streams.get( name, null )
+		var stream = findStream( name )
 		if stream and stream.data_type == data_type:
 			return stream.container
 		return null
+
+	func getStreamNames( include_implicit : bool = true ) -> PackedStringArray:
+		var names := PackedStringArray()
+		if include_implicit:
+			names.append( str( FlowData.AttrIndex ) )
+		for stream_name in streams.keys():
+			var stream_name_str := str( stream_name )
+			if names.has( stream_name_str ):
+				continue
+			names.append( stream_name_str )
+		return names
 		
 	# converts 'Yaw' into "Rotation.Y" 
 	func translateStreamName( name : String ):
@@ -266,9 +286,32 @@ class Data:
 			item[subcomp_idx] = sub_container[idx]
 			big_container[idx] = item
 		stream.container = big_container
+
+	func isIndexStreamName( name : String ) -> bool:
+		var normalized := str( name ).strip_edges().to_lower()
+		return normalized == str( FlowData.AttrIndex ) or normalized == "index"
+
+	func makeIndexStream() -> Dictionary:
+		var new_container := PackedInt32Array()
+		new_container.resize( size() )
+		for idx in range( new_container.size() ):
+			new_container[idx] = idx
+		return {
+			"data_type" : DataType.Int,
+			"container" : new_container,
+			"name" : str( FlowData.AttrIndex )
+		}
 		
 	func findStream( name : String ):
 		name = translateStreamName( name )
+		if isIndexStreamName( name ):
+			var stream = streams.get( name, null )
+			if stream != null:
+				return stream
+			stream = streams.get( FlowData.AttrIndex, null )
+			if stream != null:
+				return stream
+			return makeIndexStream()
 		
 		var name_lower := name.to_lower()
 		if name_lower == "front" or name_lower == "up" or name_lower == "right":
@@ -293,17 +336,6 @@ class Data:
 				}
 			return null
 		
-		if name == "index":
-			var new_container = PackedInt32Array()
-			new_container.resize( size() )
-			for idx in range( new_container.size() ):
-				new_container[idx] = idx
-			return {
-				"data_type" : DataType.Int,
-				"container" : new_container,
-				"name" : "Index"
-			}
-			
 		var parts = name.split( "." )
 		if parts.size() == 2:
 			#print( "findStream(%s) => %s (Streams:%s)" % [ name, parts, streams])
@@ -422,6 +454,8 @@ class Data:
 	func filteredStream( old_stream : Dictionary, indices : PackedInt32Array ):
 		var new_size : int = indices.size()
 		var source_container = old_stream.container
+		if new_size == 0:
+			return newContainerOfType(old_stream.data_type)
 		if size() > 1 and source_container.size() == 1:
 			return source_container.duplicate()
 		match old_stream.data_type:

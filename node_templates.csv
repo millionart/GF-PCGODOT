@@ -99,7 +99,7 @@
 "spawn_meshes","Spawn Meshes"
 "spawn_nodes","Spawn Nodes"
 "spawn_scenes","Spawn Scenes"
-"split_splines","Split Splines"
+"split_splines","Spline to Segment"
 "subgraph","Subgraph"
 "substract","Substract"
 "surface_sampler","Surface Sampler"

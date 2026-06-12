@@ -78,18 +78,21 @@ func updateNumRowsAndCols():
 	num_rows = data.size()
 	col_titles.clear()
 	col_streams_names.clear()
-	for stream in data.streams.values():	
-		var stream_name : String = stream.name
+	for stream_name in data.getStreamNames():
+		var stream = data.findStream( stream_name )
+		if stream == null:
+			continue
+		var resolved_stream_name : String = str( stream.name )
 		match stream.data_type:
 			FlowData.DataType.Vector:
-				col_titles.append( "%s.X" % stream_name)
-				col_titles.append( "%s.Y" % stream_name)
-				col_titles.append( "%s.Z" % stream_name)
+				col_titles.append( "%s.X" % resolved_stream_name)
+				col_titles.append( "%s.Y" % resolved_stream_name)
+				col_titles.append( "%s.Z" % resolved_stream_name)
 				col_streams_names.append( stream_name)
 				col_streams_names.append( stream_name)
 				col_streams_names.append( stream_name)
 			_:
-				col_titles.append( "%s" % stream_name)
+				col_titles.append( "%s" % resolved_stream_name)
 				col_streams_names.append( stream_name)
 	num_cols = col_titles.size()
 	#print( col_titles )
@@ -103,18 +106,13 @@ func fmt( v : float ) -> String:
 func onColumnBegins( cell : DataTableContainer.CellContents ):
 	cell.alignment = HORIZONTAL_ALIGNMENT_RIGHT
 	
-	if cell.col == 0:
-		tv.setCellCallback( getCellContentsIndex )
-		return	
-	
-	# col = 0 is for the Index
-	var data_col = cell.col - 1
+	var data_col = cell.col
 	if data_col >= col_streams_names.size():
 		tv.setCellCallback(Callable())
 		return
 		
 	var stream_name = col_streams_names[ data_col ]
-	var stream = data.streams.get( stream_name, null )
+	var stream = data.findStream( stream_name )
 	if !stream:
 		tv.setCellCallback(Callable())
 		return
@@ -184,10 +182,6 @@ func getCellContentsInt(cell : DataTableContainer.CellContents ):
 	var real_row := _container_index_for_cell(cell.row)
 	cell.text = "%d" % container[ real_row ] if real_row >= 0 else ""
 	
-func getCellContentsIndex(cell : DataTableContainer.CellContents ):
-	var real_row = visible_rows[cell.row] if cell.row < visible_rows.size() else cell.row
-	cell.text = "%d" % real_row
-	
 func getCellContentsString(cell : DataTableContainer.CellContents ):
 	var real_row := _container_index_for_cell(cell.row)
 	cell.text = container[ real_row ] if real_row >= 0 else ""
@@ -245,10 +239,8 @@ func refresh():
 		apply_sort()
 		
 		# Stats: row/col summary
-		%LabelStats.text = FlowI18n.t("%d rows · %d streams · %d cols") % [ num_rows, data.numFields(), num_cols]
+		%LabelStats.text = FlowI18n.t("%d rows · %d streams · %d cols") % [ num_rows, data.numFields(true), num_cols]
 		
-		# Index column
-		tv.addColumn( "#", 0 )
 		tv.num_rows = visible_rows.size()
 		var row_height := get_theme_default_font_size()
 		tv.setRowHeight( row_height )
@@ -342,17 +334,17 @@ func onTitleClicked( col : int ):
 		tv.refreshUI()
 
 # Returns a comparable value for the given data row in the given table column.
-# Column 0 is the index column; data columns map through col_streams_names.
 func _row_sort_value( real_row : int, col : int ):
-	if col == 0:
-		return real_row
-	var data_col = col - 1
+	var data_col = col
 	if data_col >= col_streams_names.size():
 		return null
-	var stream = data.streams.get( col_streams_names[ data_col ], null )
-	if stream == null or real_row >= stream.container.size():
+	var stream = data.findStream( col_streams_names[ data_col ] )
+	if stream == null or stream.container.size() == 0:
 		return null
-	var val = stream.container[ real_row ]
+	var read_idx := FlowData.bcast_idx( stream.container.size(), real_row )
+	if read_idx < 0 or read_idx >= stream.container.size():
+		return null
+	var val = stream.container[ read_idx ]
 	match stream.data_type:
 		FlowData.DataType.Vector:
 			if val is Vector3:
@@ -420,48 +412,53 @@ func update_visible_rows(filter_text : String):
 			visible_rows.append(i)
 	else:
 		var filter_lower = filter_text.to_lower()
+		var filter_streams := []
+		for stream_name in data.getStreamNames():
+			var stream = data.findStream( stream_name )
+			if stream != null:
+				filter_streams.append( stream )
 		for i in range(data.size()):
 			var matched = false
-			if filter_lower in str(i):
-				matched = true
-			else:
-				for stream in data.streams.values():
-					if i >= stream.container.size():
-						continue
-					var val = stream.container[i]
-					match stream.data_type:
-						FlowData.DataType.Vector:
-							if val is Vector3:
-								if filter_lower in fmt(val.x).to_lower() or filter_lower in fmt(val.y).to_lower() or filter_lower in fmt(val.z).to_lower():
-									matched = true
-									break
-						FlowData.DataType.Float:
-							if filter_lower in fmt(val).to_lower():
+			for stream in filter_streams:
+				if stream == null or stream.container.size() == 0:
+					continue
+				var read_idx := FlowData.bcast_idx( stream.container.size(), i )
+				if read_idx < 0 or read_idx >= stream.container.size():
+					continue
+				var val = stream.container[read_idx]
+				match stream.data_type:
+					FlowData.DataType.Vector:
+						if val is Vector3:
+							if filter_lower in fmt(val.x).to_lower() or filter_lower in fmt(val.y).to_lower() or filter_lower in fmt(val.z).to_lower():
 								matched = true
 								break
-						FlowData.DataType.Bool:
-							var b_str = "true" if val else "false"
-							if filter_lower in b_str:
-								matched = true
-								break
-						FlowData.DataType.Int:
-							if filter_lower in str(val).to_lower():
-								matched = true
-								break
-						FlowData.DataType.String:
-							if filter_lower in str(val).to_lower():
-								matched = true
-								break
-						FlowData.DataType.Resource:
-							var res = val as Resource
-							if res and filter_lower in res.resource_path.to_lower():
-								matched = true
-								break
-						FlowData.DataType.NodePath, FlowData.DataType.NodeMesh:
-							var node_val = val as Node3D
-							if node_val and filter_lower in ("$" + node_val.name).to_lower():
-								matched = true
-								break
+					FlowData.DataType.Float:
+						if filter_lower in fmt(val).to_lower():
+							matched = true
+							break
+					FlowData.DataType.Bool:
+						var b_str = "true" if val else "false"
+						if filter_lower in b_str:
+							matched = true
+							break
+					FlowData.DataType.Int:
+						if filter_lower in str(val).to_lower():
+							matched = true
+							break
+					FlowData.DataType.String:
+						if filter_lower in str(val).to_lower():
+							matched = true
+							break
+					FlowData.DataType.Resource:
+						var res = val as Resource
+						if res and filter_lower in res.resource_path.to_lower():
+							matched = true
+							break
+					FlowData.DataType.NodePath, FlowData.DataType.NodeMesh:
+						var node_val = val as Node3D
+						if node_val and filter_lower in ("$" + node_val.name).to_lower():
+							matched = true
+							break
 			if matched:
 				visible_rows.append(i)
 

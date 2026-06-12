@@ -296,7 +296,7 @@ static func get_input_stream_names(node: GraphNode, port: int) -> PackedStringAr
 	var input_data = node.inputs[port]
 	if input_data == null or not input_data is FlowData.Data:
 		return names
-	for stream_name in input_data.streams.keys():
+	for stream_name in input_data.getStreamNames():
 		names.append(str(stream_name))
 	names.sort()
 	return names

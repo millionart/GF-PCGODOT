@@ -12,6 +12,9 @@ func _init():
 		"category" : "ControlFlow",
 	}
 
+func _empty_like_input(in_data : FlowData.Data) -> FlowData.Data:
+	return in_data.filter(PackedInt32Array())
+
 func execute( ctx : FlowData.EvaluationContext ):
 	var in_data : FlowData.Data = require_input(0, ctx)
 	if in_data == null:
@@ -25,7 +28,7 @@ func execute( ctx : FlowData.EvaluationContext ):
 			var stream = in_data.findStream(settings.attribute_name)
 			if stream == null:
 				if ctx.owner == null and Engine.is_editor_hint():
-					var empty_data = FlowData.Data.new()
+					var empty_data = _empty_like_input(in_data)
 					set_output(0, empty_data)
 					set_output(1, empty_data)
 					return
@@ -41,7 +44,7 @@ func execute( ctx : FlowData.EvaluationContext ):
 			else:
 				push_warning("Branch: attribute '%s' is empty — falling back to Branch Value" % settings.attribute_name)
 
-	var empty_data = FlowData.Data.new()
+	var empty_data = _empty_like_input(in_data)
 	if select_a:
 		set_output(0, in_data)
 		set_output(1, empty_data)

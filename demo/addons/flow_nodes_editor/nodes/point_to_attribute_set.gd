@@ -38,7 +38,8 @@ func _copy_stream_if_present(out_data : FlowData.Data, source_name : StringName,
 		return ""
 	var source_stream = out_data.streams[source_name]
 	var container = _clone_stream_container(source_stream)
-	return out_data.registerStream(target_name, container, source_stream.data_type)
+	var err = out_data.registerStream(target_name, container, source_stream.data_type)
+	return str(err) if err else ""
 
 func execute(_ctx : FlowData.EvaluationContext):
 	var in_data : FlowData.Data = require_input(0, _ctx)
