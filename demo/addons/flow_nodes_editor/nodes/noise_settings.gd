@@ -4,11 +4,11 @@ extends NodeSettings
 
 @export_group("Noise")
 
-@export var out_name : String = "density"
+@export var out_name : String = FlowData.AttrDensity
 @export var in_scale : float = 1.0
 @export var noise_bias : float = 0.0
 @export var noise_amplitude : float = 1.0
-@export var sample_attribute : String = "position"
+@export var sample_attribute : String = FlowData.AttrPosition
 
 enum eOutputType {
 	Float = 0,

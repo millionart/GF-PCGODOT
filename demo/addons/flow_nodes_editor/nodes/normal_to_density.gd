@@ -36,7 +36,7 @@ func execute( ctx : FlowData.EvaluationContext ):
 		if rot_stream != null and (rot_stream.data_type != FlowData.DataType.Vector or rot_stream.container.size() == 0):
 			rot_stream = null
 		if rot_stream == null:
-			setError("Input has neither a 'normal' nor a 'rotation' stream")
+			setError("Input has neither a %s nor a %s stream" % [FlowData.AttrNormal, FlowData.AttrRotation])
 			return
 
 	# Existing density (missing stream = constant 1.0).

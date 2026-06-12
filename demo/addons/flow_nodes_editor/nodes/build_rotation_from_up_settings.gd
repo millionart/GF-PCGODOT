@@ -4,7 +4,7 @@ extends NodeSettings
 
 @export_group("Build Rotation From Up Vector")
 
-@export var up_vector_attribute: String = "normal"
+@export var up_vector_attribute: String = FlowData.AttrNormal
 @export var up_vector_constant: Vector3 = Vector3.UP
 @export var use_constant: bool = false
 @export var axis: String = "z"

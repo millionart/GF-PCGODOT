@@ -41,8 +41,8 @@ func _test_outputs_one_point_per_control_point_segment() -> bool:
 	var node = SplineToSegmentNode.new()
 	node.name = "spline_to_segment"
 	node.settings = SplineToSegmentSettings.new()
-	node.deps = []
-	node.dependants = []
+	node.deps = _empty_connections()
+	node.dependants = _empty_connections()
 	node.inputs = [in_data]
 
 	var ctx = FlowDataScript.EvaluationContext.new()
@@ -51,8 +51,8 @@ func _test_outputs_one_point_per_control_point_segment() -> bool:
 
 	var out_data = _get_output(node)
 	var passed := (
-		_expect_vectors(out_data, "position", PackedVector3Array([Vector3(5.0, 0.0, 0.0), Vector3(10.0, 0.0, 5.0)]), "Segment centers should come from adjacent control points")
-		and _expect_vectors(out_data, "size", PackedVector3Array([Vector3(10.0, 1.0, 1.0), Vector3(10.0, 1.0, 1.0)]), "Segment sizes should use full segment length on local X")
+		_expect_vectors(out_data, str(FlowDataScript.AttrPosition), PackedVector3Array([Vector3(5.0, 0.0, 0.0), Vector3(10.0, 0.0, 5.0)]), "Segment centers should come from adjacent control points")
+		and _expect_vectors(out_data, str(FlowDataScript.AttrSize), PackedVector3Array([Vector3(10.0, 1.0, 1.0), Vector3(10.0, 1.0, 1.0)]), "Segment sizes should use full segment length on local X")
 		and _expect_ints(out_data, "SegmentIndex", PackedInt32Array([0, 1]), "SegmentIndex should match segment order")
 		and _expect_ints(out_data, "SegmentPreviousIndex", PackedInt32Array([-1, 0]), "SegmentPreviousIndex should encode open-start boundary")
 		and _expect_ints(out_data, "SegmentNextIndex", PackedInt32Array([1, -1]), "SegmentNextIndex should encode open-end boundary")
@@ -70,6 +70,10 @@ func _get_output(node):
 	if bulk.is_empty():
 		return null
 	return bulk[0]
+
+
+func _empty_connections() -> Array[Dictionary]:
+	return []
 
 
 func _expect_vectors(data, stream_name : String, expected : PackedVector3Array, message : String) -> bool:

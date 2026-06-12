@@ -9,7 +9,7 @@ func _init():
 		"settings" : AttributeRenameNodeSettings,
 		"ins" : [{ "label": "In" }],
 		"outs" : [{ "label" : "Out" }],
-		"tooltip" : "Renames one attribute/stream while preserving its type and values.\nVirtual/computed streams (index, front/up/right, component accessors like name.x) can't be renamed.",
+		"tooltip" : "Renames one attribute/stream while preserving its type and values.\nBuilt-in/computed streams (such as $Position, $Index, and component accessors like Attr.X) can't be renamed.",
 		"aliases" : ["Attribute Rename", "Rename Attribute"],
 		"category" : "Metadata",
 	}
@@ -30,26 +30,24 @@ func execute(_ctx : FlowData.EvaluationContext):
 		set_output(0, in_data.duplicate())
 		return
 
-	if "." in to_name or to_name == "@last" or to_name == "index" or to_name.to_lower() in ["front", "up", "right"]:
+	if "." in to_name or to_name == "@last" or to_name.begins_with("$"):
 		setError("'%s' is a reserved/virtual stream name and can't be used as destination" % to_name)
 		return
 
 	var out_data : FlowData.Data = in_data.duplicate()
-	# Resolve aliases like @last/Yaw to the real stream key, then require the
-	# result to be a REAL stream. findStream() can also resolve synthetic
-	# streams (index, front/up/right, sub-components like "pos.x") that are
-	# computed on the fly and don't exist in out_data.streams — renaming those
-	# used to crash on the streams[from_name] lookup below.
+	# Resolve @last to the real stream key, then require the result to be a
+	# real user stream. findStream() can also resolve computed streams such as
+	# $Index and sub-components like Attr.X that don't exist in out_data.streams.
 	from_name = out_data.translateStreamName(from_name)
+	if from_name.begins_with("$"):
+		setError("'%s' is a built-in stream and can't be renamed" % settings.from_name.strip_edges())
+		return
 	if not out_data.streams.has(from_name):
 		if out_data.findStream(settings.from_name.strip_edges()) != null:
 			setError("'%s' is a virtual/computed stream and can't be renamed" % settings.from_name.strip_edges())
 		else:
 			setError("Input does not contain attribute '%s'" % settings.from_name.strip_edges())
 		return
-
-	if from_name in [String(FlowData.AttrPosition), String(FlowData.AttrRotation), String(FlowData.AttrSize)]:
-		push_warning("Attribute Rename: renaming canonical stream '%s' will break downstream transform-dependent nodes" % from_name)
 
 	if out_data.hasStream(to_name):
 		if not settings.overwrite_existing:

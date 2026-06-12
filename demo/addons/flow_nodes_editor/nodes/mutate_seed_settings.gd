@@ -9,12 +9,12 @@ enum eMode {
 	Xor,
 }
 
-@export var in_seed_attribute : String = "seed":
+@export var in_seed_attribute : String = FlowData.AttrSeed:
 	set(value):
 		in_seed_attribute = value.strip_edges()
 		emit_changed()
 
-@export var out_seed_attribute : String = "seed":
+@export var out_seed_attribute : String = FlowData.AttrSeed:
 	set(value):
 		out_seed_attribute = value.strip_edges()
 		emit_changed()

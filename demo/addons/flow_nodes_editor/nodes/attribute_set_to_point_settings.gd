@@ -3,17 +3,17 @@ extends NodeSettings
 
 @export_group("Attribute Set To Point")
 
-@export var position_attribute_name : String = "position":
+@export var position_attribute_name : String = FlowData.AttrPosition:
 	set(value):
 		position_attribute_name = value.strip_edges()
 		emit_changed()
 
-@export var rotation_attribute_name : String = "rotation":
+@export var rotation_attribute_name : String = FlowData.AttrRotation:
 	set(value):
 		rotation_attribute_name = value.strip_edges()
 		emit_changed()
 
-@export var size_attribute_name : String = "size":
+@export var size_attribute_name : String = FlowData.AttrSize:
 	set(value):
 		size_attribute_name = value.strip_edges()
 		emit_changed()

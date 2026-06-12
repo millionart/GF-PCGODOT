@@ -89,7 +89,7 @@ func _test_custom_tangents_use_attributes() -> bool:
 
 func _make_position_data() -> FlowData.Data:
 	var data := FlowDataScript.Data.new()
-	data.registerStream("position", PackedVector3Array([
+	data.registerStream(str(FlowDataScript.AttrPosition), PackedVector3Array([
 		Vector3.ZERO,
 		Vector3(10.0, 0.0, 0.0),
 		Vector3(20.0, 10.0, 0.0),
@@ -103,8 +103,8 @@ func _execute_create_spline(in_data : FlowData.Data, configure):
 	node.settings = CreateSplineSettings.new()
 	if configure != null:
 		configure.call(node.settings)
-	node.deps = []
-	node.dependants = []
+	node.deps = _empty_connections()
+	node.dependants = _empty_connections()
 	node.inputs = [in_data]
 
 	var ctx = FlowDataScript.EvaluationContext.new()
@@ -126,6 +126,10 @@ func _get_output_path(node):
 	if stream == null or stream.container.is_empty():
 		return null
 	return stream.container[0] as Path3D
+
+
+func _empty_connections() -> Array[Dictionary]:
+	return []
 
 
 func _expect(condition : bool, message : String) -> bool:

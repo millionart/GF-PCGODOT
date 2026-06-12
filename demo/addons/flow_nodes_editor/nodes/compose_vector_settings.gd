@@ -7,7 +7,7 @@ extends NodeSettings
 @export var y_attribute: String = ""
 @export var z_attribute: String = ""
 @export var default_value: Vector3 = Vector3.ONE
-@export var out_attribute: String = "size"
+@export var out_attribute: String = FlowData.AttrSize
 
 func _init():
 	super._init()

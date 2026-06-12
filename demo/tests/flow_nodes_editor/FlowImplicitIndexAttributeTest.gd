@@ -12,6 +12,7 @@ const SortSettings = preload("res://addons/flow_nodes_editor/nodes/sort_settings
 func _init() -> void:
 	var passed := true
 	passed = _test_flow_data_exposes_implicit_index() and passed
+	passed = _test_custom_dollar_stream_names_are_rejected() and passed
 	passed = _test_attribute_selector_includes_index() and passed
 	passed = _test_get_attribute_from_point_index_reads_index() and passed
 	passed = _test_sort_attributes_reads_index() and passed
@@ -25,20 +26,29 @@ func _init() -> void:
 
 func _test_flow_data_exposes_implicit_index() -> bool:
 	var data := _make_point_data()
-	var index_stream = data.findStream("$index")
-	var legacy_index_stream = data.findStream("index")
-	var checked_container = data.getContainerChecked("$index", FlowDataScript.DataType.Int)
+	var index_name := str(FlowDataScript.AttrIndex)
+	var index_stream = data.findStream(index_name)
+	var checked_container = data.getContainerChecked(index_name, FlowDataScript.DataType.Int)
 	var names := data.getStreamNames()
 
 	return (
-		_expect(data.hasStream("$index"), "FlowData should report '$index' as available")
-		and _expect(data.hasStreamOfType("$index", FlowDataScript.DataType.Int), "'$index' should be an int stream")
-		and _expect(index_stream != null, "findStream('$index') should resolve the implicit index")
-		and _expect(legacy_index_stream != null, "findStream('index') should keep resolving the legacy index alias")
-		and _expect_int_container(index_stream.container, PackedInt32Array([0, 1, 2]), "'$index' values should match row indices")
-		and _expect_int_container(legacy_index_stream.container, PackedInt32Array([0, 1, 2]), "'index' alias values should match row indices")
-		and _expect_int_container(checked_container, PackedInt32Array([0, 1, 2]), "getContainerChecked('$index') should return row indices")
-		and _expect(names.has("$index"), "getStreamNames should include '$index'")
+		_expect(data.hasStream(index_name), "FlowData should report '$Index' as available")
+		and _expect(data.hasStreamOfType(index_name, FlowDataScript.DataType.Int), "'$Index' should be an int stream")
+		and _expect(index_stream != null, "findStream('$Index') should resolve the implicit index")
+		and _expect(data.findStream("$index") == null, "findStream('$index') should not resolve the old lowercase name")
+		and _expect(data.findStream("index") == null, "findStream('index') should not resolve the old bare name")
+		and _expect_int_container(index_stream.container, PackedInt32Array([0, 1, 2]), "'$Index' values should match row indices")
+		and _expect_int_container(checked_container, PackedInt32Array([0, 1, 2]), "getContainerChecked('$Index') should return row indices")
+		and _expect(names.has(index_name), "getStreamNames should include '$Index'")
+	)
+
+
+func _test_custom_dollar_stream_names_are_rejected() -> bool:
+	var data := FlowDataScript.Data.new()
+	var err = data.registerStream("$Custom", PackedInt32Array([1]), FlowDataScript.DataType.Int)
+	return (
+		_expect(err != null, "Custom '$' stream names should be rejected")
+		and _expect(data.findStream("$Custom") == null, "Rejected '$' stream should not be registered")
 	)
 
 
@@ -47,13 +57,14 @@ func _test_attribute_selector_includes_index() -> bool:
 	node.inputs = [_make_point_data()]
 	var names := FlowNodeInspectorContextControlsScript.get_input_stream_names(node, 0)
 	node.free()
-	return _expect(names.has("$index"), "Attribute selector should offer '$index'")
+	return _expect(names.has(str(FlowDataScript.AttrIndex)), "Attribute selector should offer '$Index'")
 
 
 func _test_get_attribute_from_point_index_reads_index() -> bool:
-	var node = _execute_get_attribute(_make_point_data(), "$index", 2, "@source")
+	var index_name := str(FlowDataScript.AttrIndex)
+	var node = _execute_get_attribute(_make_point_data(), index_name, 2, "@source")
 	var attribute_data = _get_output(node, 0)
-	var passed := _expect_ints(attribute_data, "$index", PackedInt32Array([2]), "Get Attribute From Point Index should read '$index'")
+	var passed := _expect_ints(attribute_data, index_name, PackedInt32Array([2]), "Get Attribute From Point Index should read '$Index'")
 	node.free()
 	return passed
 
@@ -62,9 +73,9 @@ func _test_sort_attributes_reads_index() -> bool:
 	var in_data := _make_point_data()
 	in_data.registerStream("label", PackedStringArray(["a", "b", "c"]), FlowDataScript.DataType.String)
 
-	var node = _execute_sort(in_data, "$index", SortSettings.eSortMethod.Descending, true)
+	var node = _execute_sort(in_data, str(FlowDataScript.AttrIndex), SortSettings.eSortMethod.Descending, true)
 	var out_data = _get_output(node, 0)
-	var passed := _expect_strings(out_data, "label", PackedStringArray(["c", "b", "a"]), "Sort Attributes should sort by '$index'")
+	var passed := _expect_strings(out_data, "label", PackedStringArray(["c", "b", "a"]), "Sort Attributes should sort by '$Index'")
 	node.free()
 	return passed
 
@@ -82,8 +93,8 @@ func _execute_get_attribute(in_data : FlowData.Data, source_name : String, point
 	node.settings.input_attribute_name = source_name
 	node.settings.point_index = point_index
 	node.settings.output_attribute_name = out_name
-	node.deps = []
-	node.dependants = []
+	node.deps = _empty_connections()
+	node.dependants = _empty_connections()
 	node.inputs = [in_data]
 
 	var ctx = FlowDataScript.EvaluationContext.new()
@@ -99,8 +110,8 @@ func _execute_sort(in_data : FlowData.Data, sort_by : String, sort_method : int,
 	node.settings.sort_by = sort_by
 	node.settings.sort_method = sort_method
 	node.settings.use_stable_sort = stable
-	node.deps = []
-	node.dependants = []
+	node.deps = _empty_connections()
+	node.dependants = _empty_connections()
 	node.inputs = [in_data]
 
 	var ctx = FlowDataScript.EvaluationContext.new()
@@ -116,6 +127,10 @@ func _get_output(node, port : int):
 	if port >= bulk.size():
 		return null
 	return bulk[port]
+
+
+func _empty_connections() -> Array[Dictionary]:
+	return []
 
 
 func _expect_ints(data, stream_name : String, expected : PackedInt32Array, message : String) -> bool:

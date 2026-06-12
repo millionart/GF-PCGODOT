@@ -3,7 +3,7 @@ extends NodeSettings
 
 @export_group("Get Attribute From Point Index")
 
-@export var input_attribute_name : String = "density":
+@export var input_attribute_name : String = FlowData.AttrDensity:
 	set(value):
 		input_attribute_name = value.strip_edges()
 		emit_changed()

@@ -12,7 +12,7 @@ extends NodeSettings
 		emit_changed()
 
 @export_group("Neighborhood Source Attributes")
-@export var density_attribute : String = "density":
+@export var density_attribute : String = FlowData.AttrDensity:
 	set(value):
 		density_attribute = value.strip_edges()
 		emit_changed()

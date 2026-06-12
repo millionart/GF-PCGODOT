@@ -26,7 +26,7 @@ enum eValueChannel {
 		uv_attribute_name = value.strip_edges()
 		emit_changed()
 
-@export var position_attribute_name : String = "position":
+@export var position_attribute_name : String = FlowData.AttrPosition:
 	set(value):
 		position_attribute_name = value.strip_edges()
 		emit_changed()

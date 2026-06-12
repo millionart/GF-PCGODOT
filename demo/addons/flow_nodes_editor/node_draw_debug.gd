@@ -132,7 +132,7 @@ func _debug_modulation_stream(out_data: FlowData.Data):
 			return last_stream
 
 	var preferred_names := [
-		"density",
+		String(FlowData.AttrDensity),
 		"weight",
 		"noise",
 		"value",
@@ -211,16 +211,16 @@ func _safe_float(value) -> float:
 func _is_debug_bookkeeping_stream(stream_name: String) -> bool:
 	var lower := stream_name.to_lower()
 	return lower in [
-		String(FlowData.AttrPosition),
-		String(FlowData.AttrRotation),
-		String(FlowData.AttrSize),
+		String(FlowData.AttrPosition).to_lower(),
+		String(FlowData.AttrRotation).to_lower(),
+		String(FlowData.AttrSize).to_lower(),
+		String(FlowData.AttrIndex).to_lower(),
 		"grid_cell",
 		"cell_x",
 		"cell_y",
 		"room_id",
 		"roomid",
 		"door_id",
-		"index",
 		"source_index",
 		"parent_index",
 		"offset_index",

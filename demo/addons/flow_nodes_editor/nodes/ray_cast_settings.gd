@@ -27,7 +27,7 @@ enum eDirectionMode {
 		emit_changed()
 @export var normalize_direction : bool = true
 
-@export var from_attribute : String = "position"
+@export var from_attribute : String = FlowData.AttrPosition
 
 @export_group("Collision")
 @export var collision_mask : int = 1
@@ -38,8 +38,8 @@ enum eDirectionMode {
 
 @export_group("Outputs")
 @export var out_result_attribute : String = "hit"
-@export var out_position_attribute : String = "position"
-@export var out_rotation_attribute : String = "rotation"
+@export var out_position_attribute : String = FlowData.AttrPosition
+@export var out_rotation_attribute : String = FlowData.AttrRotation
 @export var out_normal_attribute : String = ""
 @export var out_distance_attribute : String = ""
 @export var out_collider_attribute : String = ""

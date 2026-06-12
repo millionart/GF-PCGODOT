@@ -18,7 +18,7 @@ enum eShapeType {
 @export var radius : float = 1.0
 @export var half_extents : Vector3 = Vector3.ONE
 @export var use_point_size_for_shape : bool = false
-@export var position_attribute : String = "position"
+@export var position_attribute : String = FlowData.AttrPosition
 
 @export_group("Collision")
 @export var collision_mask : int = 1

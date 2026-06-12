@@ -12,7 +12,7 @@ enum eMode {
 	Multiply,
 }
 
-@export var target_attribute : String = "density":
+@export var target_attribute : String = FlowData.AttrDensity:
 	set(value):
 		target_attribute = value.strip_edges()
 		emit_changed()

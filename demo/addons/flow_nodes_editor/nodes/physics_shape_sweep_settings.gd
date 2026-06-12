@@ -22,7 +22,7 @@ enum eDirectionMode {
 @export var radius : float = 0.5
 @export var half_extents : Vector3 = Vector3.ONE
 @export var use_point_size_for_shape : bool = false
-@export var position_attribute : String = "position"
+@export var position_attribute : String = FlowData.AttrPosition
 @export var direction_mode : eDirectionMode = eDirectionMode.Constant:
 	set(value):
 		value = clampi(value, 0, eDirectionMode.size() - 1)
@@ -41,7 +41,7 @@ enum eDirectionMode {
 
 @export_group("Outputs")
 @export var out_hit_attribute : String = "sweep_hit"
-@export var out_position_attribute : String = "position"
+@export var out_position_attribute : String = FlowData.AttrPosition
 @export var out_safe_fraction_attribute : String = "sweep_safe_fraction"
 @export var out_unsafe_fraction_attribute : String = "sweep_unsafe_fraction"
 @export var out_collider_attribute : String = ""

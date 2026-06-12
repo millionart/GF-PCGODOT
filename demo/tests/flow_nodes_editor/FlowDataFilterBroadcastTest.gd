@@ -17,7 +17,7 @@ func _init() -> void:
 func _test_filter_preserves_broadcast_streams() -> bool:
 	var data := FlowDataScript.Data.new()
 	data.registerStream(
-		"position",
+		str(FlowDataScript.AttrPosition),
 		PackedVector3Array([
 			Vector3.ZERO,
 			Vector3(1.0, 0.0, 0.0),
@@ -36,15 +36,15 @@ func _test_filter_preserves_broadcast_streams() -> bool:
 	data.registerStream("shared_payload", shared_payload, FlowDataScript.DataType.Resource)
 
 	var filtered: FlowData.Data = data.filter(PackedInt32Array([3, 1]))
-	var position_stream = filtered.findStream("position")
+	var position_stream = filtered.findStream(str(FlowDataScript.AttrPosition))
 	var radius_stream = filtered.findStream("shared_radius")
 	var payload_stream = filtered.findStream("shared_payload")
 
 	return (
-		_expect(position_stream != null, "filtered data should keep position")
-		and _expect(position_stream.container.size() == 2, "position should have selected rows")
-		and _expect(position_stream.container[0] == Vector3(3.0, 0.0, 0.0), "position[0] should come from index 3")
-		and _expect(position_stream.container[1] == Vector3(1.0, 0.0, 0.0), "position[1] should come from index 1")
+		_expect(position_stream != null, "filtered data should keep $Position")
+		and _expect(position_stream.container.size() == 2, "$Position should have selected rows")
+		and _expect(position_stream.container[0] == Vector3(3.0, 0.0, 0.0), "$Position[0] should come from index 3")
+		and _expect(position_stream.container[1] == Vector3(1.0, 0.0, 0.0), "$Position[1] should come from index 1")
 		and _expect(radius_stream != null, "filtered data should keep broadcast float")
 		and _expect(radius_stream.container.size() == 1, "broadcast float should stay single-value")
 		and _expect(is_equal_approx(radius_stream.container[0], 42.0), "broadcast float value should be preserved")
@@ -57,13 +57,13 @@ func _test_filter_preserves_broadcast_streams() -> bool:
 func _test_filter_drops_single_row_streams_when_not_selected() -> bool:
 	var data := FlowDataScript.Data.new()
 	data.registerStream(
-		"position",
+		str(FlowDataScript.AttrPosition),
 		PackedVector3Array([Vector3(1.0, 0.0, 0.0)]),
 		FlowDataScript.DataType.Vector
 	)
 
 	var filtered: FlowData.Data = data.filter(PackedInt32Array())
-	var position_stream = filtered.findStream("position")
+	var position_stream = filtered.findStream(str(FlowDataScript.AttrPosition))
 
 	return (
 		_expect(position_stream != null, "filtered single-row data should keep stream")

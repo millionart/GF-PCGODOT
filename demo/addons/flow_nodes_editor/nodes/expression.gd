@@ -12,8 +12,8 @@ func _init():
 		"tooltip" :
 			"Evaluates an expression and stores the result in the output stream\n" + 
 			" * When expose_arrays is set, the values of the point set are exposed as arrays\n" +
-			"   and position[Index] (Index with capital I) must be used to reference the current point\n" + 
-			"   and position[Index-1] references the previous position\n" + 
+			"   and $Position[Index] must be used to reference the current point\n" +
+			"   and $Position[Index-1] references the previous position\n" +
 			" * Size for the total number of points\n" +  
 			" * Customize the Node Label if the expression is too long\n"
 			,
@@ -27,6 +27,28 @@ var _out_data : FlowData.Data
 	
 func shorten(text: String) -> String:
 	return text.substr(0, 32) + "..." if text.length() > 32 else text
+
+func _expression_param_name(stream_name : String) -> String:
+	if stream_name == str( FlowData.AttrIndex ):
+		return "Index"
+	if stream_name.begins_with("$"):
+		return "__Flow_%s" % stream_name.substr(1).replace(".", "_")
+	return stream_name
+
+func _rewrite_system_attribute_refs(expression : String) -> String:
+	var rewritten := expression
+	var system_names := [
+		str( FlowData.AttrPosition ),
+		str( FlowData.AttrRotation ),
+		str( FlowData.AttrSize ),
+		str( FlowData.AttrDensity ),
+		str( FlowData.AttrSeed ),
+		str( FlowData.AttrNormal ),
+		str( FlowData.AttrIndex ),
+	]
+	for stream_name in system_names:
+		rewritten = rewritten.replace(stream_name, _expression_param_name(stream_name))
+	return rewritten
 	
 # Expose the local parameters of the expressions as parameters of the flow node 
 func getExposedParams():
@@ -90,10 +112,13 @@ func execute( ctx : FlowData.EvaluationContext ):
 	_container = null
 	_container_data_type = FlowData.DataType.Invalid
 	
+	var stream_entries := in_data.streams.values()
 	var names = ["Index", "Size"]
 	names.append_array( settings.args.keys() )
-	names.append_array( in_data.streams.keys() )
-	var error := _expression.parse(settings.expression, names)
+	for stream in stream_entries:
+		names.append( _expression_param_name( str( stream.name ) ) )
+	var expression_source := _rewrite_system_attribute_refs(settings.expression)
+	var error := _expression.parse(expression_source, names)
 	if error != OK:
 		setError("Failed parsing expression: %s" % _expression.get_error_text())
 		return
@@ -108,7 +133,7 @@ func execute( ctx : FlowData.EvaluationContext ):
 			values.append( def_value )
 	
 	if settings.expose_arrays:
-		var containers = in_data.streams.values().map( func( s ): return s.container )
+		var containers = stream_entries.map( func( s ): return s.container )
 		values.append_array( containers )
 
 		for idx in range( _in_size ):
@@ -117,7 +142,7 @@ func execute( ctx : FlowData.EvaluationContext ):
 				break
 	else:
 		var k0 = values.size()
-		var containers := in_data.streams.values().map( func(s): return s.container )
+		var containers := stream_entries.map( func(s): return s.container )
 		var num_containers = containers.size()
 		values.append_array( containers.map( func( c ): return c[0] ) )
 		for idx in range( _in_size ):

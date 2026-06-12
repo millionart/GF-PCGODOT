@@ -21,13 +21,13 @@ enum DataType {
 	Invalid = 999
 }
 
-const AttrPosition : StringName = &"position"
-const AttrRotation : StringName = &"rotation"
-const AttrSize     : StringName = &"size"
-const AttrDensity  : StringName = &"density"	# Float, 0..1, soft existence probability (UE $Density)
-const AttrSeed     : StringName = &"seed"		# Int, per-point deterministic seed (UE $Seed)
-const AttrNormal   : StringName = &"normal"		# Vector, surface normal where known
-const AttrIndex    : StringName = &"$index"		# Int, implicit row index (UE $Index)
+const AttrPosition : StringName = &"$Position"
+const AttrRotation : StringName = &"$Rotation"
+const AttrSize     : StringName = &"$Scale"
+const AttrDensity  : StringName = &"$Density"	# Float, 0..1, soft existence probability
+const AttrSeed     : StringName = &"$Seed"		# Int, per-point deterministic seed
+const AttrNormal   : StringName = &"$Normal"	# Vector, surface normal where known
+const AttrIndex    : StringName = &"$Index"		# Int, implicit row index
 
 class EvaluationContext:
 	var owner : FlowGraphNode3D
@@ -217,27 +217,39 @@ class Data:
 			names.append( stream_name_str )
 		return names
 		
-	# converts 'Yaw' into "Rotation.Y" 
 	func translateStreamName( name : String ):
 		if name == "@last":
 			if not last_added_stream_name:
 				push_error( "@last is not valid" )
 			return last_added_stream_name
-		if name == "Yaw":
-			return "%s.Y" % FlowData.AttrRotation
-		if name == "Pitch":
-			return "%s.X" % FlowData.AttrRotation
-		if name == "Roll":
-			return "%s.Z" % FlowData.AttrRotation
 		return name
+
+	func isSystemStreamName( name : String ) -> bool:
+		var stream_name := str( name ).strip_edges()
+		return stream_name in [
+			str( FlowData.AttrPosition ),
+			str( FlowData.AttrRotation ),
+			str( FlowData.AttrSize ),
+			str( FlowData.AttrDensity ),
+			str( FlowData.AttrSeed ),
+			str( FlowData.AttrNormal ),
+			str( FlowData.AttrIndex ),
+		]
+
+	func validateReservedStreamName( name : String ) -> String:
+		var parts := name.split( "." )
+		var root_name := str( parts[0] ).strip_edges()
+		if root_name.begins_with( "$" ) and not isSystemStreamName( root_name ):
+			return "Stream names starting with '$' are reserved for built-in attributes (%s)" % root_name
+		return ""
 		
 	func getSubStreamIndex(  sub_comp : String ):
 		var sc_up = sub_comp.to_upper()
-		if sc_up == "X" or sc_up == "R":
+		if sc_up == "X" or sc_up == "R" or sc_up == "PITCH":
 			return 0
-		elif sc_up == "Y" or sc_up == "G":
+		elif sc_up == "Y" or sc_up == "G" or sc_up == "YAW":
 			return 1
-		elif sc_up == "Z" or sc_up == "B":
+		elif sc_up == "Z" or sc_up == "B" or sc_up == "ROLL":
 			return 2
 		elif sc_up == "W" or sc_up == "A":
 			return 3
@@ -288,8 +300,7 @@ class Data:
 		stream.container = big_container
 
 	func isIndexStreamName( name : String ) -> bool:
-		var normalized := str( name ).strip_edges().to_lower()
-		return normalized == str( FlowData.AttrIndex ) or normalized == "index"
+		return str( name ).strip_edges() == str( FlowData.AttrIndex )
 
 	func makeIndexStream() -> Dictionary:
 		var new_container := PackedInt32Array()
@@ -313,30 +324,12 @@ class Data:
 				return stream
 			return makeIndexStream()
 		
-		var name_lower := name.to_lower()
-		if name_lower == "front" or name_lower == "up" or name_lower == "right":
-			var rot_stream = streams.get(AttrRotation, null)
-			if rot_stream != null:
-				var eulers = rot_stream.container
-				var new_container := PackedVector3Array()
-				new_container.resize(eulers.size())
-				for idx in range(eulers.size()):
-					var basis := FlowData.eulerToBasis(eulers[idx])
-					match name_lower:
-						"front":
-							new_container[idx] = -basis.z
-						"up":
-							new_container[idx] = basis.y
-						"right":
-							new_container[idx] = basis.x
-				return {
-					"data_type": DataType.Vector,
-					"container": new_container,
-					"name": name
-				}
-			return null
-		
 		var parts = name.split( "." )
+		if parts.size() == 2 and parts[0] == str( FlowData.AttrRotation ):
+			var rotation_axis := parts[1].to_lower()
+			if rotation_axis == "forward" or rotation_axis == "up" or rotation_axis == "right":
+				return getRotationDirectionStream( parts[1] )
+
 		if parts.size() == 2:
 			#print( "findStream(%s) => %s (Streams:%s)" % [ name, parts, streams])
 			var s0 = findStream( parts[0] )
@@ -348,6 +341,29 @@ class Data:
 		elif parts.size() > 2:
 			return null
 		return streams.get( name, null )
+
+	func getRotationDirectionStream( direction_name : String ):
+		var rot_stream = streams.get( FlowData.AttrRotation, null )
+		if rot_stream != null:
+			var direction_lower := direction_name.to_lower()
+			var eulers = rot_stream.container
+			var new_container := PackedVector3Array()
+			new_container.resize( eulers.size() )
+			for idx in range( eulers.size() ):
+				var basis := FlowData.eulerToBasis( eulers[idx] )
+				match direction_lower:
+					"forward":
+						new_container[idx] = -basis.z
+					"up":
+						new_container[idx] = basis.y
+					"right":
+						new_container[idx] = basis.x
+			return {
+				"data_type" : DataType.Vector,
+				"container" : new_container,
+				"name" : "%s.%s" % [ FlowData.AttrRotation, direction_name ]
+			}
+		return null
 	
 	func registerStream( name : String, container, data_type : DataType = FlowData.DataType.Invalid ):
 		if not name:
@@ -358,6 +374,9 @@ class Data:
 			push_error("registerStream. Can't register a null container with name %s" %  name )
 			return null			
 		name = translateStreamName( name )
+		var reserved_error := validateReservedStreamName( name )
+		if reserved_error != "":
+			return reserved_error
 		var parts = name.split( "." )
 		if parts.size() == 2:
 			var s0 = streams.get( parts[0], null )
@@ -419,7 +438,10 @@ class Data:
 		var new_container = newContainerOfType(data_type)
 		if sz:
 			new_container.resize( sz )
-		registerStream( name, new_container, data_type )
+		var err = registerStream( name, new_container, data_type )
+		if err:
+			push_error( err )
+			return null
 		return new_container
 	
 	func delStream( name : String):

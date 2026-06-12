@@ -4,7 +4,7 @@ extends NodeSettings
 
 @export_group("Sanity Check")
 
-@export var attribute_name: String = "density"
+@export var attribute_name: String = FlowData.AttrDensity
 @export var min_value: float = 0.0
 @export var max_value: float = 1.0
 

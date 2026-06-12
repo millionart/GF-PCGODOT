@@ -17,7 +17,7 @@ func execute( ctx : FlowData.EvaluationContext ):
 		return
 	
 	var out_data : FlowData.Data = in_data.duplicate()
-	var s_density = in_data.findStream("density")
+	var s_density = in_data.findStream(FlowData.AttrDensity)
 	
 	var num_elems = in_data.size()
 	var densities := PackedFloat32Array()
@@ -42,5 +42,5 @@ func execute( ctx : FlowData.EvaluationContext ):
 			mapped = clamp(mapped, min(out_min, out_max), max(out_min, out_max))
 		densities[i] = mapped
 		
-	out_data.registerStream("density", densities, FlowData.DataType.Float)
+	out_data.registerStream(FlowData.AttrDensity, densities, FlowData.DataType.Float)
 	set_output(0, out_data)

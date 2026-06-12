@@ -64,13 +64,13 @@ The data model is a **column store**: each pin carries `Data` objects, and a `Da
 
 | Unreal | Here | Notes |
 |---|---|---|
-| `$Density` | `density` stream | Float, **0..1**, soft existence probability — same semantics as UE. Samplers initialize it to 1.0 on their outputs; density-consuming nodes treat a *missing* density stream as constant 1.0; nodes that write it clamp to 0..1. |
-| `$Seed` | `seed` stream | Int, per-point, derived from the point's position when a sampler creates it. Stochastic nodes (`transform_points`, `match_and_set`, `attribute_noise`, `select_points`, ...) prefer the point seed (combined with the node's seed) when the stream is present, so regenerating with the same seeds is fully deterministic and points keep their randomness when neighbors change. `mutate_seed` re-rolls it, exactly like UE. |
-| `$Position` | `position` | Vector3 stream. |
-| `$Position.X` | `position.x` | Component selectors work on any Vector/Color stream: `.x/.y/.z/.w` and `.r/.g/.b/.a`, case-insensitive. No swizzles (`$Position.ZYX` has no equivalent). |
-| `$Rotation` | `rotation` | Vector3 **Euler degrees** — not a quaternion (see [roadmap](PARITY_ROADMAP.md#quaternion-rotation-model)). Yaw is the **Y** component (Godot is Y-up). Convenience aliases: `Yaw` → `rotation.y`, `Pitch` → `rotation.x`, `Roll` → `rotation.z`. |
-| `$Scale` | `size` | Vector3. **Caution:** `size` doubles as the point's bounds — `difference`, `self_pruning`, `bounds_modifier`, and the debug cubes all read it. UE's separate Scale-vs-Bounds distinction is a [roadmap item](PARITY_ROADMAP.md#per-point-boundsminboundsmax--steepness). |
-| `$BoundsMin` / `$BoundsMax` | — | No per-point bounds pair; `size` is the extent. `bounds_modifier` collapses min/max settings into an extent written to `size`. Roadmap. |
+| `$Density` | `$Density` stream | Float, **0..1**, soft existence probability — same semantics as UE. Samplers initialize it to 1.0 on their outputs; density-consuming nodes treat a *missing* density stream as constant 1.0; nodes that write it clamp to 0..1. |
+| `$Seed` | `$Seed` stream | Int, per-point, derived from the point's position when a sampler creates it. Stochastic nodes (`transform_points`, `match_and_set`, `attribute_noise`, `select_points`, ...) prefer the point seed (combined with the node's seed) when the stream is present, so regenerating with the same seeds is fully deterministic and points keep their randomness when neighbors change. `mutate_seed` re-rolls it, exactly like UE. |
+| `$Position` | `$Position` | Vector3 stream. |
+| `$Position.X` | `$Position.X` | Component selectors work on any Vector/Color stream: `.x/.y/.z/.w` and `.r/.g/.b/.a`, case-insensitive. No swizzles (`$Position.ZYX` has no equivalent). |
+| `$Rotation` | `$Rotation` | Vector3 **Euler degrees** — not a quaternion (see [roadmap](PARITY_ROADMAP.md#quaternion-rotation-model)). Yaw is the **Y** component (Godot is Y-up). Use `$Rotation.Yaw`, `$Rotation.Pitch`, and `$Rotation.Roll`; bare `Yaw`/`Pitch`/`Roll` are not aliases. |
+| `$Scale` | `$Scale` | Vector3. **Caution:** `$Scale` doubles as the point's bounds — `difference`, `self_pruning`, `bounds_modifier`, and the debug cubes all read it. UE's separate Scale-vs-Bounds distinction is a [roadmap item](PARITY_ROADMAP.md#per-point-boundsminboundsmax--steepness). |
+| `$BoundsMin` / `$BoundsMax` | — | No per-point bounds pair; `$Scale` is the extent. `bounds_modifier` collapses min/max settings into an extent written to `$Scale`. Roadmap. |
 | `$Steepness` | — | Does not exist. Roadmap. |
 | `$Color` | a `Color`-typed stream | Conventionally named `color`; `spawn_meshes` reads it for per-instance vertex colors. |
 | `@Last` | `@last` | "The last stream written by the upstream node" — same idea, same place you'd use it (filter inputs default to it). |
@@ -80,7 +80,7 @@ The data model is a **column store**: each pin carries `Data` objects, and a `Da
 | **Tags** | `Data.tags` | Per-data string tags, exactly like UE: `add_tags` / `delete_tags` / `replace_tags` to mutate, `filter_data_by_tag` to route. |
 | **Spatial data types** (Surface, Volume, Spline, Primitive, composite algebra) | Point streams + dedicated nodes | There is no typed spatial lattice. Splines travel as a `node` stream of `Path3D`s (from `scan_splines`), meshes as a `node`/`mesh` stream (from `scan_meshes`), and you sample them explicitly (`sample_spline`, `sample_mesh`, `surface_sampler`). "To Point" / "Make Concrete" are unnecessary — everything already is points. See [roadmap](PARITY_ROADMAP.md#spatial-data-type-lattice). |
 | **Multi-data on a pin** | "bulks" | A pin can carry several `Data` objects; the Data Inspector has a selector to page through them, and `loop` iterates them. |
-| — (bonus) | `index`, `front` / `up` / `right` | Virtual streams: per-point index, and direction vectors derived from `rotation`. |
+| `$Index`, `$Rotation.Forward` / `$Rotation.Up` / `$Rotation.Right` | same names | Virtual streams: per-point index, and direction vectors derived from `$Rotation`. Bare `index`, `front`, `up`, and `right` are not aliases. |
 
 > **Gotcha:** a `.` inside an attribute name is always interpreted as component access (`foo.x` reads component X of stream `foo`). Don't put dots in attribute names.
 
@@ -116,7 +116,7 @@ Search for any name in the **UE node** column inside the add-node popup — the 
 
 | UE node | Here | Status | Notes |
 |---|---|---|---|
-| Surface Sampler | `surface_sampler` | partial | Scatters points across the input's bounds. Uses a point count (`num_points`) rather than UE's points-per-square-meter; no Looseness. Initializes `density` = 1.0 and per-point `seed`. For uneven terrain, follow with `projection` to drape points onto the geometry. |
+| Surface Sampler | `surface_sampler` | partial | Scatters points across the input's bounds. Uses a point count (`num_points`) rather than UE's points-per-square-meter; no Looseness. Initializes `$Density` = 1.0 and per-point `$Seed`. For uneven terrain, follow with `projection` to drape points onto the geometry. |
 | Spline Sampler | `sample_spline` | 1:1 | Distance mode (`uniform_interval`), random samples, segment centers (with look-at rotation — the fence trick), and **interior fill** of closed splines (grid / random / Poisson) with a distance-to-border attribute. |
 | Mesh Sampler | `sample_mesh` (alias `mesh_sampler`) | 1:1 | Area-weighted random, one-per-vertex, or face centers; rotations from triangle normals; optional hard-edge rejection. |
 | Volume Sampler | `volume_sampler` | 1:1 | Regular 3D grid inside each input point's oriented volume. |
@@ -128,19 +128,19 @@ Search for any name in the **UE node** column inside the add-node popup — the 
 
 | UE node | Here | Status | Notes |
 |---|---|---|---|
-| Difference | `difference` | partial | RTree-accelerated AABB set ops (overlap = position+size boxes). One node covers Difference both ways, Intersection, Union, and Symmetric Difference via its `operation` setting. **Caveat:** hard point removal, no density-attenuation mode, and overlap uses `size` (no per-point bounds/steepness — roadmap). |
+| Difference | `difference` | partial | RTree-accelerated AABB set ops (overlap = `$Position` + `$Scale` boxes). One node covers Difference both ways, Intersection, Union, and Symmetric Difference via its `operation` setting. **Caveat:** hard point removal, no density-attenuation mode, and overlap uses `$Scale` (no per-point bounds/steepness — roadmap). |
 | Union | `union` | partial | Point-merge union; no Max/Add density function. |
 | Intersection / Inner Intersection | `intersection` | partial | Outer intersection of A against B; no N-way inner variant. |
-| Projection | `projection` | 1:1 | Projects points onto physics geometry along a direction; can inherit rotation from the surface normal and writes the `normal` stream. |
+| Projection | `projection` | 1:1 | Projects points onto physics geometry along a direction; can inherit rotation from the surface normal and writes the `$Normal` stream. |
 | To Point / Make Concrete | — | n/a | Unnecessary — every pin already carries concrete points. |
 | Merge Points | `merge` (alias `merge_points`) | 1:1 | Multi-input concatenation with stream-union semantics. |
 | Create Points | `grid` (or `add_attribute` + `attribute_set_to_point`) | partial | No hand-authored point-list editor; a 1×1×1 `grid` makes a single point. |
 | Create Points Grid | `grid`, `grid_fill_bounds` | 1:1 | `grid_fill_bounds` fills the bounds of upstream points. |
 | Create Spline | `create_spline` | 1:1 | Builds a `Path3D` through input points. |
 | Create Surface From Spline | `create_surface_from_spline` | partial | Emits a bounds point + area/perimeter attributes, not true surface data; pair with `sample_spline`'s interior-fill mode for "scatter inside a closed spline". |
-| Spatial Noise | `noise` | 1:1 | FastNoiseLite: Value/Perlin/Simplex/Cellular + fractal options; writes any attribute (default `density`), Override or Add. |
+| Spatial Noise | `noise` | 1:1 | FastNoiseLite: Value/Perlin/Simplex/Cellular + fractal options; writes any attribute (default `$Density`), Override or Add. |
 | Distance | `distance` | 1:1 | KD-tree nearest distance to a second input, optional normalization by `max_distance`. |
-| Normal To Density | `normal_to_density` | 1:1 | Slope masking: density from dot(normal, reference direction) with offset/strength and Set/Min/Max/Add/Multiply combine. Reads the `normal` stream, falling back to the rotation's up vector. |
+| Normal To Density | `normal_to_density` | 1:1 | Slope masking: density from dot(normal, reference direction) with offset/strength and Set/Min/Max/Add/Multiply combine. Reads the `$Normal` stream, falling back to the rotation's up vector. |
 | Mutate Seed | `mutate_seed` | 1:1 | Position-stable per-point seed re-derivation. |
 | Point Neighborhood | `point_neighborhood` | 1:1 | Radius-averaged values. |
 | Point From Mesh | `point_from_mesh` | 1:1 | One point carrying a mesh's bounds. |
@@ -157,8 +157,8 @@ Search for any name in the **UE node** column inside the add-node popup — the 
 
 | UE node | Here | Status | Notes |
 |---|---|---|---|
-| Transform Points | `transform_points` (alias `transform`) | 1:1 | Random offset/rotation/scale ranges, local-space rotation toggle, uniform-scale toggle. Per-point seeded when the `seed` stream exists. |
-| Bounds Modifier | `bounds_modifier` | partial | Set/Add/Multiply an extent into `size`. Asymmetric min/max collapses to a symmetric extent (no per-point bounds offset — roadmap). |
+| Transform Points | `transform_points` (alias `transform`) | 1:1 | Random offset/rotation/scale ranges, local-space rotation toggle, uniform-scale toggle. Per-point seeded when the `$Seed` stream exists. |
+| Bounds Modifier | `bounds_modifier` | partial | Set/Add/Multiply an extent into `$Scale`. Asymmetric min/max collapses to a symmetric extent (no per-point bounds offset — roadmap). |
 | Extents Modifier | `bounds_modifier` | partial | Same node, same caveat. |
 | Apply Scale to Bounds | — | roadmap | Requires the scale/bounds split. |
 | Duplicate Point | `duplicate_point` (also `point_offsets`, `copy` LinearCopies) | 1:1 | N copies along a world or local offset. |
@@ -179,7 +179,7 @@ Search for any name in the **UE node** column inside the add-node popup — the 
 | Filter Data By Attribute | `filter_data_by_attribute` | 1:1 | Routes by attribute presence. |
 | Filter Data by Index | `sequence_sample` | partial | |
 | Filter Attributes by Name | `remove_attribute` | 1:1 | Keep/remove listed streams. |
-| Self Pruning | `self_pruning` | 1:1 | Native RTree bounds-overlap pruning (large-to-small) + a grid-cell dedupe mode. Overlap uses `size` as bounds. |
+| Self Pruning | `self_pruning` | 1:1 | Native RTree bounds-overlap pruning (large-to-small) + a grid-cell dedupe mode. Overlap uses `$Scale` as bounds. |
 | Discard Points on Irregular Surface | — | roadmap | Compose `ray_cast` probes + `point_neighborhood` + `density_filter` meanwhile. |
 
 ### Density
@@ -189,7 +189,7 @@ Search for any name in the **UE node** column inside the add-node popup — the 
 | Density Remap | `density_remap` | 1:1 | Linear in-range → out-range, optional clamp. |
 | Curve Remap Density | `curve_remap_density` | 1:1 | Remap through a Godot `Curve` resource. |
 | Distance to Density | `distance_to_density` (or `distance` + `density_remap`) | 1:1 | |
-| Density Noise | `attribute_noise` (targets `density` by default) | 1:1 | Exactly the UE 5.3+ story: Density Noise *is* Attribute Noise pointed at density. Set/Min/Max/Add/Multiply modes, per-point seeded, clamps when targeting density. |
+| Density Noise | `attribute_noise` (targets `$Density` by default) | 1:1 | Exactly the UE 5.3+ story: Density Noise *is* Attribute Noise pointed at `$Density`. Set/Min/Max/Add/Multiply modes, per-point seeded, clamps when targeting density. |
 
 ### Attributes / Metadata
 
@@ -286,8 +286,8 @@ Three canonical UE recipes, translated node-for-node. All three assume the demo 
 3. **`surface_sampler`** — drag a wire off `scan_meshes` into empty space and type "Surface Sampler". Set:
    - `num_points` = `400` — note this is a **count**, not UE's points-per-square-meter; scale it with your terrain size
    - `point_size` = `(1, 1, 1)`
-   - Press **D** on the node: you should see a field of cubes. The sampler also initialized `density` (all 1.0) and a per-point `seed` — press **A** and check the columns.
-   - *Terrain not flat?* Insert a **`projection`** node ("Projection") after the sampler to drop points onto the actual surface along `-Y`; enable its rotation-from-normal option if you want trees to tilt with the slope (it also writes the `normal` stream — useful for Tutorial 2).
+   - Press **D** on the node: you should see a field of cubes. The sampler also initialized `$Density` (all 1.0) and a per-point `$Seed` — press **A** and check the columns.
+   - *Terrain not flat?* Insert a **`projection`** node ("Projection") after the sampler to drop points onto the actual surface along `-Y`; enable its rotation-from-normal option if you want trees to tilt with the slope (it also writes the `$Normal` stream — useful for Tutorial 2).
 4. **`transform_points`** — type "Transform Points". UE's quick-start uses absolute Z rotation 0–360 and scale 0.5–1.2:
    - `rotation_min` = `(0, 0, 0)`, `rotation_max` = `(0, 360, 0)` — **yaw is Y here** (Godot is Y-up; UE's Z-yaw becomes Y-yaw)
    - `scale_min` = `(0.5, 0.5, 0.5)`, `scale_max` = `(1.2, 1.2, 1.2)`, `uniform_scale` = on
@@ -304,20 +304,20 @@ The graph re-evaluates as you tweak; there is no Generate button to press.
 
 **Here:** identical shape — `surface_sampler → normal_to_density → attribute_noise → density_filter → transform_points → spawn_meshes`
 
-1. Start from Tutorial 1's `scan_meshes → surface_sampler` (with `projection` in between if your ground is uneven — projection writes the `normal` stream that step 2 wants).
+1. Start from Tutorial 1's `scan_meshes → surface_sampler` (with `projection` in between if your ground is uneven — projection writes the `$Normal` stream that step 2 wants).
 2. **`normal_to_density`** — type "Normal To Density". Set:
    - `normal_to_compare` = `(0, 1, 0)` (up), `offset` = `0.0`, `strength` = `1.0`, `density_mode` = `Set`
-   - density becomes `clamp(dot(normal, up) + offset, 0, 1) ^ strength` — flat ground ≈ 1, steep slopes → 0. If there is no `normal` stream it derives one from each point's rotation.
+   - `$Density` becomes `clamp(dot($Normal, up) + offset, 0, 1) ^ strength` — flat ground ≈ 1, steep slopes → 0. If there is no `$Normal` stream it derives one from each point's rotation.
 3. **`attribute_noise`** — type "Density Noise" or "Attribute Noise" (both aliases hit it). Set:
-   - `target_attribute` = `density`, `mode` = `Multiply`, `noise_min` = `0.0`, `noise_max` = `1.0`, `clamp_result` = on
-   - This is per-point-seeded random noise, multiplying the slope mask. For *spatially coherent* clumps (UE's "CellSize ~5000" trick), use the **`noise`** node instead ("Spatial Noise"): `out_name` = `density`, `mode` = `Add` or `Override`, `in_scale` ≈ `0.02`, noise_type Perlin — bigger features = smaller `in_scale`.
+   - `target_attribute` = `$Density`, `mode` = `Multiply`, `noise_min` = `0.0`, `noise_max` = `1.0`, `clamp_result` = on
+   - This is per-point-seeded random noise, multiplying the slope mask. For *spatially coherent* clumps (UE's "CellSize ~5000" trick), use the **`noise`** node instead ("Spatial Noise"): `out_name` = `$Density`, `mode` = `Add` or `Override`, `in_scale` ≈ `0.02`, noise_type Perlin — bigger features = smaller `in_scale`.
    - Press **D** here: the debug cubes tint grayscale by density (0 = black, 1 = white), the same read UE gives you.
 4. **`density_filter`** — type "Density Filter". Set:
    - `lower_bound` = `0.5`, `upper_bound` = `1.0`
    - **In Filter** carries the survivors; **Outside Filter** carries the rejects (wire it to a second spawner for "grass where trees aren't"-style layering).
 5. Finish with `transform_points → spawn_meshes` exactly as in Tutorial 1.
 
-For the **two-layer biome** variant: run the rock chain through `bounds_modifier` (inflate `size`) → `self_pruning` ("Self Pruning") before spawning, then feed the rock points into a `difference` node ("Difference") as input B with the grass points as input A — grass is removed where rocks stand, UE-style.
+For the **two-layer biome** variant: run the rock chain through `bounds_modifier` (inflate `$Scale`) → `self_pruning` ("Self Pruning") before spawning, then feed the rock points into a `difference` node ("Difference") as input B with the grass points as input A — grass is removed where rocks stand, UE-style.
 
 ### Tutorial 3 — Spline fence
 

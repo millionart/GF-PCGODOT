@@ -44,5 +44,5 @@ func execute( ctx : FlowData.EvaluationContext ):
 			t = 1.0 - t
 		densities[i] = lerpf(min_dens, max_dens, t)
 		
-	out_data.registerStream("density", densities, FlowData.DataType.Float)
+	out_data.registerStream(FlowData.AttrDensity, densities, FlowData.DataType.Float)
 	set_output(0, out_data)

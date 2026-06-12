@@ -20,18 +20,19 @@ func _init() -> void:
 
 func _test_extracts_attribute_and_selected_point() -> bool:
 	var in_data := _make_point_data()
-	in_data.registerStream("density", PackedFloat32Array([0.25, 0.5, 0.75]), FlowDataScript.DataType.Float)
+	var density_name := str(FlowDataScript.AttrDensity)
+	in_data.registerStream(density_name, PackedFloat32Array([0.25, 0.5, 0.75]), FlowDataScript.DataType.Float)
 	in_data.registerStream("label", PackedStringArray(["a", "b", "c"]), FlowDataScript.DataType.String)
 
-	var node := _execute_node(in_data, "density", 1, "@source")
+	var node = _execute_node(in_data, density_name, 1, "@source")
 	var attribute_data = _get_output(node, 0)
 	var point_data = _get_output(node, 1)
 
 	var passed := (
-		_expect_float_stream(attribute_data, "density", 0.5, "attribute output should contain density[1]")
-		and _expect_float_stream(point_data, "density", 0.5, "point output should keep density[1]")
+		_expect_float_stream(attribute_data, density_name, 0.5, "attribute output should contain $Density[1]")
+		and _expect_float_stream(point_data, density_name, 0.5, "point output should keep $Density[1]")
 		and _expect_string_stream(point_data, "label", "b", "point output should keep label[1]")
-		and _expect_vector_stream(point_data, "position", Vector3(10.0, 0.0, 0.0), "point output should keep position[1]")
+		and _expect_vector_stream(point_data, str(FlowDataScript.AttrPosition), Vector3(10.0, 0.0, 0.0), "point output should keep $Position[1]")
 	)
 	node.free()
 	return passed
@@ -39,16 +40,17 @@ func _test_extracts_attribute_and_selected_point() -> bool:
 
 func _test_reads_broadcast_attribute_from_selected_point() -> bool:
 	var in_data := _make_point_data()
-	in_data.registerStream("density", PackedFloat32Array([0.9]), FlowDataScript.DataType.Float)
+	var density_name := str(FlowDataScript.AttrDensity)
+	in_data.registerStream(density_name, PackedFloat32Array([0.9]), FlowDataScript.DataType.Float)
 
-	var node := _execute_node(in_data, "density", 2, "@source")
+	var node = _execute_node(in_data, density_name, 2, "@source")
 	var attribute_data = _get_output(node, 0)
 	var point_data = _get_output(node, 1)
 
 	var passed := (
-		_expect_float_stream(attribute_data, "density", 0.9, "attribute output should read broadcast density")
-		and _expect_float_stream(point_data, "density", 0.9, "point output should keep broadcast density")
-		and _expect_vector_stream(point_data, "position", Vector3(20.0, 0.0, 0.0), "point output should keep position[2]")
+		_expect_float_stream(attribute_data, density_name, 0.9, "attribute output should read broadcast $Density")
+		and _expect_float_stream(point_data, density_name, 0.9, "point output should keep broadcast $Density")
+		and _expect_vector_stream(point_data, str(FlowDataScript.AttrPosition), Vector3(20.0, 0.0, 0.0), "point output should keep $Position[2]")
 	)
 	node.free()
 	return passed
@@ -56,9 +58,10 @@ func _test_reads_broadcast_attribute_from_selected_point() -> bool:
 
 func _test_rejects_out_of_range_index() -> bool:
 	var in_data := _make_point_data()
-	in_data.registerStream("density", PackedFloat32Array([0.25, 0.5, 0.75]), FlowDataScript.DataType.Float)
+	var density_name := str(FlowDataScript.AttrDensity)
+	in_data.registerStream(density_name, PackedFloat32Array([0.25, 0.5, 0.75]), FlowDataScript.DataType.Float)
 
-	var node := _execute_node(in_data, "density", 3, "@source")
+	var node = _execute_node(in_data, density_name, 3, "@source")
 	var passed := (
 		_expect(node.generated_bulks.is_empty(), "out-of-range index should not emit outputs")
 		and _expect(node.err.contains("out of range"), "out-of-range index should report an error")
@@ -70,7 +73,7 @@ func _test_rejects_out_of_range_index() -> bool:
 func _make_point_data() -> FlowData.Data:
 	var data := FlowDataScript.Data.new()
 	data.addCommonStreams(3)
-	var positions : PackedVector3Array = data.getContainerChecked("position", FlowDataScript.DataType.Vector)
+	var positions : PackedVector3Array = data.getContainerChecked(str(FlowDataScript.AttrPosition), FlowDataScript.DataType.Vector)
 	positions[0] = Vector3.ZERO
 	positions[1] = Vector3(10.0, 0.0, 0.0)
 	positions[2] = Vector3(20.0, 0.0, 0.0)
@@ -84,8 +87,8 @@ func _execute_node(in_data : FlowData.Data, source_name : String, point_index : 
 	node.settings.input_attribute_name = source_name
 	node.settings.point_index = point_index
 	node.settings.output_attribute_name = out_name
-	node.deps = []
-	node.dependants = []
+	node.deps = _empty_connections()
+	node.dependants = _empty_connections()
 	node.inputs = [in_data]
 
 	var ctx = FlowDataScript.EvaluationContext.new()
@@ -101,6 +104,10 @@ func _get_output(node, port : int):
 	if port >= bulk.size():
 		return null
 	return bulk[port]
+
+
+func _empty_connections() -> Array[Dictionary]:
+	return []
 
 
 func _expect_float_stream(data, stream_name : String, expected : float, message : String) -> bool:

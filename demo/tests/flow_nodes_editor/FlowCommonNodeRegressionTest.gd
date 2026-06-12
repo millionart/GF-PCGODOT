@@ -12,6 +12,7 @@ const PointToAttributeSetSettings = preload("res://addons/flow_nodes_editor/node
 func _init() -> void:
 	var passed := true
 	passed = _test_expression_writes_bool_stream_as_bytes() and passed
+	passed = _test_expression_reads_ue_system_attribute_name() and passed
 	passed = _test_branch_unselected_output_keeps_empty_schema() and passed
 	passed = _test_point_to_attribute_set_preserves_transforms_without_nil_return_error() and passed
 
@@ -31,8 +32,8 @@ func _test_expression_writes_bool_stream_as_bytes() -> bool:
 	node.settings = ExpressionSettings.new()
 	node.settings.expression = "Index == 1"
 	node.settings.out_name = "is_middle"
-	node.deps = []
-	node.dependants = []
+	node.deps = _empty_connections()
+	node.dependants = _empty_connections()
 	node.inputs = [in_data]
 
 	_execute_node(node)
@@ -48,6 +49,35 @@ func _test_expression_writes_bool_stream_as_bytes() -> bool:
 	return passed
 
 
+func _test_expression_reads_ue_system_attribute_name() -> bool:
+	var in_data := FlowDataScript.Data.new()
+	in_data.addCommonStreams(2)
+	var positions : PackedVector3Array = in_data.getContainerChecked(str(FlowDataScript.AttrPosition), FlowDataScript.DataType.Vector)
+	positions[0] = Vector3(2.0, 0.0, 0.0)
+	positions[1] = Vector3(10.0, 0.0, 0.0)
+
+	var node = ExpressionNode.new()
+	node.name = "expression"
+	node.settings = ExpressionSettings.new()
+	node.settings.expression = "$Position.x + $Index"
+	node.settings.out_name = "position_plus_index"
+	node.deps = _empty_connections()
+	node.dependants = _empty_connections()
+	node.inputs = [in_data]
+
+	_execute_node(node)
+
+	var out_data = _get_output(node, 0)
+	var passed := _expect_float_stream(
+		out_data,
+		"position_plus_index",
+		PackedFloat32Array([2.0, 11.0]),
+		"Expression should read UE-style built-in attributes"
+	)
+	node.free()
+	return passed
+
+
 func _test_branch_unselected_output_keeps_empty_schema() -> bool:
 	var in_data := FlowDataScript.Data.new()
 	in_data.registerStream("id", PackedInt32Array([10, 20, 30]), FlowDataScript.DataType.Int)
@@ -57,8 +87,8 @@ func _test_branch_unselected_output_keeps_empty_schema() -> bool:
 	node.name = "branch"
 	node.settings = BranchSettings.new()
 	node.settings.branch_value = true
-	node.deps = []
-	node.dependants = []
+	node.deps = _empty_connections()
+	node.dependants = _empty_connections()
 	node.inputs = [in_data]
 
 	_execute_node(node)
@@ -85,8 +115,8 @@ func _test_point_to_attribute_set_preserves_transforms_without_nil_return_error(
 	node.settings = PointToAttributeSetSettings.new()
 	node.settings.drop_point_transform_streams = true
 	node.settings.preserve_transforms_as_attributes = true
-	node.deps = []
-	node.dependants = []
+	node.deps = _empty_connections()
+	node.dependants = _empty_connections()
 	node.inputs = [in_data]
 
 	_execute_node(node)
@@ -94,9 +124,9 @@ func _test_point_to_attribute_set_preserves_transforms_without_nil_return_error(
 	var out_data = _get_output(node, 0)
 	var passed := (
 		_expect(out_data != null, "Point To Attribute Set should emit output")
-		and _expect(out_data.findStream("position") == null, "Position stream should be dropped")
-		and _expect(out_data.findStream("rotation") == null, "Rotation stream should be dropped")
-		and _expect(out_data.findStream("size") == null, "Size stream should be dropped")
+		and _expect(out_data.findStream(str(FlowDataScript.AttrPosition)) == null, "$Position stream should be dropped")
+		and _expect(out_data.findStream(str(FlowDataScript.AttrRotation)) == null, "$Rotation stream should be dropped")
+		and _expect(out_data.findStream(str(FlowDataScript.AttrSize)) == null, "$Scale stream should be dropped")
 		and _expect_stream_size(out_data, "point_position", FlowDataScript.DataType.Vector, 1)
 		and _expect_stream_size(out_data, "point_rotation", FlowDataScript.DataType.Vector, 1)
 		and _expect_stream_size(out_data, "point_size", FlowDataScript.DataType.Vector, 1)
@@ -118,6 +148,10 @@ func _get_output(node, port : int):
 	if port >= bulk.size():
 		return null
 	return bulk[port]
+
+
+func _empty_connections() -> Array[Dictionary]:
+	return []
 
 
 func _expect_empty_stream(data, stream_name : String, data_type : int) -> bool:
@@ -148,6 +182,22 @@ func _expect_byte_stream(data, stream_name : String, expected : PackedByteArray,
 		return false
 	for i in range(expected.size()):
 		if not _expect(int(stream.container[i]) == int(expected[i]), "%s: index %d got %s" % [message, i, stream.container[i]]):
+			return false
+	return true
+
+
+func _expect_float_stream(data, stream_name : String, expected : PackedFloat32Array, message : String) -> bool:
+	if not _expect(data != null, "%s: missing output" % message):
+		return false
+	var stream = data.findStream(stream_name)
+	if not _expect(stream != null, "%s: missing stream '%s'" % [message, stream_name]):
+		return false
+	if not _expect(stream.data_type == FlowDataScript.DataType.Float, "%s: expected Float stream" % message):
+		return false
+	if not _expect(stream.container.size() == expected.size(), "%s: expected %d values" % [message, expected.size()]):
+		return false
+	for i in range(expected.size()):
+		if not _expect(is_equal_approx(float(stream.container[i]), expected[i]), "%s: index %d got %s" % [message, i, stream.container[i]]):
 			return false
 	return true
 

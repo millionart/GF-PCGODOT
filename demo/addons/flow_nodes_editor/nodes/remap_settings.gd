@@ -4,7 +4,7 @@ extends NodeSettings
 
 @export_group("Remap")
 
-@export var in_name : String = "density"
+@export var in_name : String = FlowData.AttrDensity
 @export var out_name : String = "@in_name"
 @export var remap_curve : Curve
 

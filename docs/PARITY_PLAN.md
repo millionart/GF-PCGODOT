@@ -7,15 +7,18 @@ This doc is the single source of truth for conventions used across the parity ed
 
 ### 1. Canonical attribute constants (defined in flow_data.gd)
 ```gdscript
-const AttrPosition = "position"   # existing
-const AttrRotation = "rotation"   # existing (Euler DEGREES, always)
-const AttrSize     = "size"       # existing
-const AttrDensity  = "density"    # NEW — Float, 0..1, soft existence probability (UE $Density)
-const AttrSeed     = "seed"       # NEW — Int, per-point deterministic seed (UE $Seed)
-const AttrNormal   = "normal"     # NEW — Vector, surface normal where known (UE $Position normal source)
+const AttrPosition = "$Position"
+const AttrRotation = "$Rotation"  # Euler DEGREES, always
+const AttrSize     = "$Scale"
+const AttrDensity  = "$Density"   # Float, 0..1, soft existence probability
+const AttrSeed     = "$Seed"      # Int, per-point deterministic seed
+const AttrNormal   = "$Normal"    # Vector, surface normal where known
+const AttrIndex    = "$Index"     # Int, implicit row index
 ```
 - Rotation streams are **Euler degrees** everywhere. Nodes writing radians are bugs.
-- Use the constants, never the bare string literals, in node code.
+- Use the constants, never bare string literals, in node code.
+- System attributes use UE PCG `$` names. Do not add bare-name aliases such as
+  `position`, `density`, or `index`; old saved graphs are not auto-migrated.
 
 ### 2. Density semantics (UE parity)
 - Samplers (surface_sampler, sample_points, sample_mesh, volume_sampler, grid,
@@ -23,7 +26,7 @@ const AttrNormal   = "normal"     # NEW — Vector, surface normal where known (
   filled with 1.0 on their outputs (after their existing streams).
 - Density is 0..1; nodes that write it clamp to 0..1 unless the node explicitly
   documents otherwise.
-- Density-consuming nodes resolve a missing density stream as constant 1.0.
+- Density-consuming nodes resolve a missing `$Density` stream as constant 1.0.
 
 ### 3. Per-point Seed semantics (UE parity)
 - Samplers also register an AttrSeed Int stream:
@@ -150,16 +153,16 @@ For nodes not in this table, use the `ue_equivalent` field from
 ### 8. New nodes (Phase B5) — exact specs
 - **density_filter.gd** — In → (In Filter, Outside Filter) [UE pin names].
   Settings: lower_bound=0.5, upper_bound=1.0, invert_filter=false.
-  Missing density stream = all points density 1.0. Reuses attribute_filter_range
+  Missing `$Density` stream = all points density 1.0. Reuses attribute_filter_range
   implementation hardwired to AttrDensity (composition, not copy-paste).
-- **attribute_noise.gd** — In → Out. Settings: target_attribute="density"
+- **attribute_noise.gd** — In → Out. Settings: target_attribute="$Density"
   (attribute selector), mode enum Set/Minimum/Maximum/Add/Multiply, noise_min=0.0,
   noise_max=1.0, invert_source=false, clamp_result=true (clamps 0..1 when
   targeting density). Per-point seeded (convention #3). Creates the attribute
   if missing (density initialized 1.0 first when targeted).
 - **normal_to_density.gd** — In → Out. Settings: normal_to_compare=Vector3.UP,
   offset=0.0, strength=1.0, density_mode enum Set/Minimum/Maximum/Add/Multiply.
-  Reads AttrNormal stream; if absent, derives normal from rotation stream
+  Reads AttrNormal stream; if absent, derives normal from AttrRotation
   (up vector). density = clamp(dot(normal.normalized, compare.normalized)
   + offset, 0, 1) ^ strength, combined per density_mode.
 - **projection.gd** — port from
