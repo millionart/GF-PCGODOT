@@ -12,6 +12,7 @@ const FORWARD_HORIZONTAL_TANGENT := Vector2(1.0, 0.0)
 const FORWARD_VERTICAL_TANGENT := Vector2(1.0, 0.0)
 const BACKWARD_HORIZONTAL_TANGENT := Vector2(2.0, 0.0)
 const BACKWARD_VERTICAL_TANGENT := Vector2(1.5, 0.0)
+const REROUTE_PORT_MATCH_DISTANCE_SQUARED := REROUTE_PORT_MATCH_DISTANCE * REROUTE_PORT_MATCH_DISTANCE
 
 enum PinDirection {
 	INPUT,
@@ -19,6 +20,10 @@ enum PinDirection {
 }
 
 var _last_connection_zoom := -1.0
+var _reroute_endpoint_cache: Array[Dictionary] = []
+var _reroute_tangent_reverse_cache := {}
+var _reroute_endpoint_cache_frame := -1
+var _reroute_endpoint_cache_zoom := -1.0
 
 func _ready() -> void:
 	minimap_enabled = false
@@ -49,23 +54,23 @@ func _get_connection_line(from_position: Vector2, to_position: Vector2) -> Packe
 	return _make_connection_line(start_position, end_position, start_direction, end_direction)
 
 func _resolve_reroute_endpoint(position: Vector2) -> Dictionary:
-	for child in get_children():
-		var node := child as FlowNodeBase
-		if node == null or node.node_template != REROUTE_TEMPLATE:
-			continue
-
-		var left_port := _reroute_left_port_graph_position(node)
-		var right_port := _reroute_right_port_graph_position(node)
-		var center := _reroute_center_graph_position(node)
-		if _is_near_scaled_reroute_port(position, left_port) or _is_near_scaled_reroute_port(position, right_port):
+	_ensure_reroute_endpoint_cache()
+	for endpoint in _reroute_endpoint_cache:
+		if (
+			_is_near_position(position, endpoint.scaled_left_port)
+			or _is_near_position(position, endpoint.scaled_right_port)
+		):
 			return {
-				"position": center * zoom,
-				"node": node,
+				"position": endpoint.scaled_center,
+				"node": endpoint.node,
 			}
-		if _is_near_graph_reroute_port(position, left_port) or _is_near_graph_reroute_port(position, right_port):
+		if (
+			_is_near_position(position, endpoint.left_port)
+			or _is_near_position(position, endpoint.right_port)
+		):
 			return {
-				"position": center,
-				"node": node,
+				"position": endpoint.center,
+				"node": endpoint.node,
 			}
 
 	return {
@@ -73,11 +78,33 @@ func _resolve_reroute_endpoint(position: Vector2) -> Dictionary:
 		"node": null,
 	}
 
-func _is_near_scaled_reroute_port(position: Vector2, graph_port_position: Vector2) -> bool:
-	return position.distance_to(graph_port_position * zoom) <= REROUTE_PORT_MATCH_DISTANCE
+func _ensure_reroute_endpoint_cache() -> void:
+	var current_frame := Engine.get_process_frames()
+	if _reroute_endpoint_cache_frame == current_frame and is_equal_approx(_reroute_endpoint_cache_zoom, zoom):
+		return
+	_reroute_endpoint_cache_frame = current_frame
+	_reroute_endpoint_cache_zoom = zoom
+	_reroute_endpoint_cache.clear()
+	_reroute_tangent_reverse_cache.clear()
+	for child in get_children():
+		var node := child as FlowNodeBase
+		if node == null or node.node_template != REROUTE_TEMPLATE:
+			continue
+		var left_port := _reroute_left_port_graph_position(node)
+		var right_port := _reroute_right_port_graph_position(node)
+		var center := _reroute_center_graph_position(node)
+		_reroute_endpoint_cache.append({
+			"node": node,
+			"left_port": left_port,
+			"right_port": right_port,
+			"center": center,
+			"scaled_left_port": left_port * zoom,
+			"scaled_right_port": right_port * zoom,
+			"scaled_center": center * zoom,
+		})
 
-func _is_near_graph_reroute_port(position: Vector2, graph_port_position: Vector2) -> bool:
-	return position.distance_to(graph_port_position) <= REROUTE_PORT_MATCH_DISTANCE
+func _is_near_position(position: Vector2, target_position: Vector2) -> bool:
+	return position.distance_squared_to(target_position) <= REROUTE_PORT_MATCH_DISTANCE_SQUARED
 
 func _reroute_center_graph_position(node: FlowNodeBase) -> Vector2:
 	var port_y := node.size.y * 0.5
@@ -98,6 +125,9 @@ func _reroute_right_port_graph_position(node: FlowNodeBase) -> Vector2:
 	return Vector2(node.position_offset.x + node.size.x, center.y)
 
 func _should_reverse_reroute_tangent(node: FlowNodeBase) -> bool:
+	var node_name := String(node.name)
+	if _reroute_tangent_reverse_cache.has(node_name):
+		return bool(_reroute_tangent_reverse_cache[node_name])
 	var input_average := Vector2.ZERO
 	var output_average := Vector2.ZERO
 	var input_count := 0
@@ -120,15 +150,21 @@ func _should_reverse_reroute_tangent(node: FlowNodeBase) -> bool:
 	if output_count > 0:
 		output_average /= float(output_count)
 
+	var should_reverse := false
 	if input_count > 0 and output_count > 0:
-		return output_average.x < input_average.x
+		should_reverse = output_average.x < input_average.x
+		_reroute_tangent_reverse_cache[node_name] = should_reverse
+		return should_reverse
 
 	var center := _reroute_center_graph_position(node)
 	if input_count > 0:
-		return center.x < input_average.x
+		should_reverse = center.x < input_average.x
+		_reroute_tangent_reverse_cache[node_name] = should_reverse
+		return should_reverse
 	if output_count > 0:
-		return output_average.x < center.x
-	return false
+		should_reverse = output_average.x < center.x
+	_reroute_tangent_reverse_cache[node_name] = should_reverse
+	return should_reverse
 
 func _node_input_port_graph_position(node: GraphNode, port: int) -> Vector2:
 	var flow_node := node as FlowNodeBase

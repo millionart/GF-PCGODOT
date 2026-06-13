@@ -51,6 +51,16 @@ func _graph_dock_is_on_bottom_panel() -> bool:
 		and bottom_tabs.get_tab_idx_from_control(graph_dock_wrapper) >= 0
 	)
 
+func _graph_dock_is_floating_window() -> bool:
+	if not _has_valid_graph_dock():
+		return false
+	var current_window := graph_dock.get_window()
+	var base_control := EditorInterface.get_base_control()
+	if base_control == null:
+		return false
+	var main_window := base_control.get_window()
+	return current_window != null and main_window != null and current_window != main_window
+
 func _remove_graph_dock() -> void:
 	if graph_dock_wrapper != null and is_instance_valid(graph_dock_wrapper):
 		remove_dock(graph_dock_wrapper)
@@ -185,7 +195,7 @@ func _ensure_graph_dock() -> void:
 		_remove_graph_dock()
 	if not _has_valid_graph_dock():
 		_create_graph_dock()
-	elif not _graph_dock_is_on_bottom_panel():
+	elif not _graph_dock_is_on_bottom_panel() and not _graph_dock_is_floating_window():
 		_schedule_place_graph_dock_after_shader()
 
 func _enter_tree():
@@ -226,6 +236,8 @@ func _set_window_layout(_configuration: ConfigFile) -> void:
 func _reconcile_graph_dock_after_editor_layout() -> void:
 	_ensure_graph_dock()
 	if not _has_valid_graph_dock():
+		return
+	if _graph_dock_is_floating_window():
 		return
 	if not _graph_dock_uses_bottom_slot() or not _graph_dock_is_on_bottom_panel():
 		if not _graph_dock_uses_bottom_slot():
@@ -383,6 +395,8 @@ func _watch_graph_dock_bottom_placement() -> void:
 	if Time.get_ticks_msec() - _dock_layout_watch_started_ms > _DOCK_LAYOUT_WATCH_MS:
 		return
 	if not _has_valid_graph_dock():
+		return
+	if _graph_dock_is_floating_window():
 		return
 	if not _graph_dock_is_on_bottom_panel():
 		if _graph_dock_uses_bottom_slot():

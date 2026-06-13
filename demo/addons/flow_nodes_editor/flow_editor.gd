@@ -37,6 +37,7 @@ var _chrome_refs: FlowEditorChrome.Refs
 var inspector: FlowInspector
 var inspected_node : Node
 var native_inspector_target: Object
+var pending_flow_inspector_edited_properties := {}
 var pending_native_inspector_edited_properties := {}
 var editor_settings_proxy: FlowEditorSettingsProxy
 var retired_graph_frame_counter := 0
@@ -2307,6 +2308,11 @@ func _sync_internal_inspector_layout() -> void:
 		splitter.notification(Container.NOTIFICATION_SORT_CHILDREN)
 
 func _on_flow_inspector_property_edited(prop_name: String) -> void:
+	if _queue_flow_inspector_property_edited_until_text_edit_finished(prop_name):
+		return
+	_apply_flow_inspector_property_edited(prop_name)
+
+func _apply_flow_inspector_property_edited(prop_name: String) -> void:
 	if prop_name == FlowInspector.GRAPH_PARAMETER_VALUE_EDITED:
 		queueSave()
 		queueRegen()
@@ -2375,6 +2381,23 @@ static func is_text_editing_control(control: Control) -> bool:
 func _is_text_editing_focus_active() -> bool:
 	var focused := get_viewport().gui_get_focus_owner()
 	return focused != null and is_text_editing_control(focused)
+
+func _queue_flow_inspector_property_edited_until_text_edit_finished(prop_name: String) -> bool:
+	var focused := get_viewport().gui_get_focus_owner()
+	if focused == null or not is_text_editing_control(focused):
+		return false
+	pending_flow_inspector_edited_properties[prop_name] = true
+	if not focused.focus_exited.is_connected(_flush_pending_flow_inspector_edits):
+		focused.focus_exited.connect(_flush_pending_flow_inspector_edits, CONNECT_ONE_SHOT)
+	return true
+
+func _flush_pending_flow_inspector_edits() -> void:
+	if pending_flow_inspector_edited_properties.is_empty():
+		return
+	var properties := pending_flow_inspector_edited_properties.keys()
+	pending_flow_inspector_edited_properties.clear()
+	for prop_name in properties:
+		_apply_flow_inspector_property_edited(String(prop_name))
 
 func _queue_native_inspector_property_edited_until_text_edit_finished(prop_name: String) -> bool:
 	var focused := get_viewport().gui_get_focus_owner()
