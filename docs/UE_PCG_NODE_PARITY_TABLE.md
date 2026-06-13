@@ -46,7 +46,9 @@ Patched in this pass:
 
 Close enough under Flow's current data model:
 
-`Add Attribute`, `Add Tags`, `Attribute Boolean Op`, `Attribute Filter`, `Attribute Filter Range`, `Attribute Partition`, `Attribute Reduce`, `Attribute Rename`, `Attribute Set To Point`, `Branch`, `Create Constant`, `Data Count`, `Data Table Row To Attribute Set`, `Debug`, `Delete Attributes`, `Delete Tags`, `Density Filter`, `Duplicate Point`, `Extract Attribute at Index`, `Filter Data By Attribute`, `Filter Data By Index`, `Filter Data By Tag`, `Filter Data By Type`, `Get Attribute From Point Index`, `Get Element Count`, `Get Loop Index`, `Load Data Table`, `Load PCG Data Asset`, `Match And Set Attributes`, `Mutate Seed`, `Normal To Density`, `Point To Attribute Set`, `Print String`, `Replace Tags`, `Select`, `Select (Multi)`, `Sort Attributes`, `Switch`.
+`Add Attribute`, `Add Tags`, `Attribute Boolean Op`, `Attribute Filter`, `Attribute Filter Range`, `Attribute Partition`, `Attribute Reduce`, `Attribute Rename`, `Attribute Set To Point`, `Branch`, `Create Constant`, `Data Count`, `Data Table Row To Attribute Set`, `Debug`, `Delete Attributes`, `Delete Tags`, `Density Filter`, `Duplicate Point`, `Extract Attribute at Index`, `Filter Data By Attribute`, `Filter Data By Index`, `Filter Data By Tag`, `Filter Data By Type`, `Get Attribute From Point Index`, `Get Element Count`, `Get Loop Index`, `Load Data Table`, `Load PCG Data Asset`, `Match And Set Attributes`, `Mutate Seed`, `Normal To Density`, `Point To Attribute Set`, `Print String`, `Replace Tags`, `Select`, `Select (Multi)`, `Sort Attributes`, `Spatial Noise`, `Switch`.
+
+`Spatial Noise` now covers UE PCG `Perlin2D`, `Caustic2D`, `Voronoi2D`, `FractionalBrownian2D`, and `EdgeMask2D`, including UE-style Value Target, Voronoi Cell ID Target, Voronoi edge orientation, tiling, and edge-mask source-bounds behavior. Flow has no UE `ExecutionSource`, so tiling and EdgeMask2D use the input `$Position` 2D bounds as the Flow data-model equivalent of UE source bounds.
 
 Partial matches that should not be claimed as full UE parity yet:
 
@@ -78,7 +80,6 @@ Partial matches that should not be claimed as full UE parity yet:
 | `Sanity Check Point Data` | `Sanity Check Point Data` | Basic validation exists; UE checks and diagnostics are broader. |
 | `Select Points` | `Select Points` | Selection exists; UE weighted/random selection settings are broader. |
 | `Self Pruning` | `Self Pruning` | Pruning exists; UE pruning modes/details are broader. |
-| `Spatial Noise` | `Spatial Noise` | Perlin2D/Caustic2D/FractionalBrownian2D basics exist; Voronoi2D, EdgeMask2D, and tiling are still incomplete. |
 | `Spline Sampler` | `Sample Spline` | Sampling exists; UE spline sampler exposes more dimension/fill/property options. |
 | `Spline to Segment` | `Spline to Segment` | Segment extraction exists; UE spline metadata compatibility still needs audit. |
 | `Surface Sampler` | `Surface Sampler` | Sampling exists; UE surface data and sampling controls are broader. |
