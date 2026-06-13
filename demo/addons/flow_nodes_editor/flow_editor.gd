@@ -4394,10 +4394,10 @@ func _open_context_menu_for_right_click(at_position: Vector2) -> void:
 	local_drop_position = at_position
 	var graph_element := _get_graph_element_at_local_position(at_position)
 	if graph_element != null:
-		_select_graph_element_for_context_menu(graph_element)
 		if graph_element is GraphFrame:
 			_open_graph_context_menu(at_position)
 			return
+		_select_graph_element_for_context_menu(graph_element)
 		_open_node_context_menu(at_position, graph_element as GraphNode)
 		return
 	_open_graph_context_menu(at_position)

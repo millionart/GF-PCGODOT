@@ -10,6 +10,7 @@ func _init() -> void:
 	passed = _test_random_color_handler_updates_frame_tint(source) and passed
 	passed = _test_random_color_preserves_alpha(source) and passed
 	passed = _test_new_comment_default_uses_ue_color(source) and passed
+	passed = _test_comment_right_click_opens_graph_menu_without_selection(source) and passed
 
 	if not passed:
 		push_error("FlowCommentFrameControlsTest failed.")
@@ -45,6 +46,17 @@ func _test_random_color_preserves_alpha(source: String) -> bool:
 func _test_new_comment_default_uses_ue_color(source: String) -> bool:
 	var body := _function_body(source, "addComment")
 	return _expect(body.contains("FlowNodeIO.DEFAULT_COMMENT_FRAME_TINT_COLOR"), "New comment frames should use the shared UE default color.")
+
+
+func _test_comment_right_click_opens_graph_menu_without_selection(source: String) -> bool:
+	var body := _function_body(source, "_open_context_menu_for_right_click")
+	var frame_branch_start := body.find("if graph_element is GraphFrame:")
+	var select_call := body.find("_select_graph_element_for_context_menu(graph_element)")
+	return (
+		_expect(frame_branch_start >= 0, "Comment frame right-click should have a GraphFrame branch.")
+		and _expect(body.find("_open_graph_context_menu(at_position)", frame_branch_start) > frame_branch_start, "Comment frame right-click should open the graph add-node menu.")
+		and _expect(select_call < 0 or select_call > frame_branch_start, "Comment frame right-click should not select the frame before opening the graph menu.")
+	)
 
 
 func _function_body(source: String, function_name: String) -> String:
