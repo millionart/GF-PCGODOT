@@ -3587,14 +3587,13 @@ func addNodeFromTemplate( node_template, node_name : String, settings = null, in
 	node.title = node.getTitle()
 	node.size = Vector2(32,32)
 	node.tooltip_text = meta.get( "tooltip", "" )
+	gedit.add_child(node)
+	gedit_nodes_by_name[ node.name ] = node
+	_mark_status_counts_dirty()
 	if initialize:
 		node.initFromScript()
 		node.refreshFromSettings()
 		refreshSignalsInputArgs( node )
-	
-	gedit.add_child(node)
-	gedit_nodes_by_name[ node.name ] = node
-	_mark_status_counts_dirty()
 	return node
 
 func _has_input_node_named(uname: String) -> bool:

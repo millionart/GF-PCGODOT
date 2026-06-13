@@ -17,6 +17,8 @@ func _init() -> void:
 	passed = _test_edge_mask_uses_source_bounds() and passed
 	passed = _test_external_noise_id_requires_namespace() and passed
 	passed = _test_external_noise_algorithm_runs_from_spatial_noise() and passed
+	passed = _test_external_noise_receives_connected_random_seed() and passed
+	passed = _test_external_adjusted_noise_skips_post_process() and passed
 	passed = _test_missing_external_noise_reports_error() and passed
 	passed = _test_value_target_writes_named_attribute() and passed
 	passed = _test_empty_input_emits_empty_value_target() and passed
@@ -230,6 +232,58 @@ func _test_external_noise_algorithm_runs_from_spatial_noise() -> bool:
 	return passed
 
 
+func _test_external_noise_receives_connected_random_seed() -> bool:
+	FlowSpatialNoiseRegistry.clear_external_algorithms()
+	var err := FlowSpatialNoiseRegistry.register_algorithm("MapGen/SeedEcho", Callable(self, "_sample_external_seed"))
+	if not _expect(err == "", "External Spatial Noise seed echo algorithm should register"):
+		return false
+	var configure := func(settings):
+		settings.mode = "MapGen/SeedEcho"
+		settings.value_target = "seed_echo"
+		settings.random_seed = 123
+		settings.random_offset = Vector3.ZERO
+	var node = _execute_node(
+		_make_point_data(),
+		configure,
+		[_single_int_data("seed", 777)],
+		{ "random_seed": { "port": 1, "connected": true } }
+	)
+	var out_data = _get_output(node)
+	var passed := _expect_float_stream_values(
+		out_data,
+		"seed_echo",
+		PackedFloat32Array([777.0, 777.0, 777.0]),
+		"External Spatial Noise should receive connected random_seed"
+	)
+	node.free()
+	FlowSpatialNoiseRegistry.clear_external_algorithms()
+	return passed
+
+
+func _test_external_adjusted_noise_skips_post_process() -> bool:
+	FlowSpatialNoiseRegistry.clear_external_algorithms()
+	var err := FlowSpatialNoiseRegistry.register_algorithm("MapGen/AdjustedNoise", Callable(self, "_sample_external_adjusted"))
+	if not _expect(err == "", "External adjusted Spatial Noise algorithm should register"):
+		return false
+	var node = _execute_node(_make_point_data(), func(settings):
+		settings.mode = "MapGen/AdjustedNoise"
+		settings.value_target = "adjusted_noise"
+		settings.brightness = 0.75
+		settings.contrast = 2.0
+		settings.algorithm_parameters = { "value": -0.25 }
+	)
+	var out_data = _get_output(node)
+	var passed := _expect_float_stream_values(
+		out_data,
+		"adjusted_noise",
+		PackedFloat32Array([-0.25, -0.25, -0.25]),
+		"Adjusted external Spatial Noise should skip Brightness/Contrast"
+	)
+	node.free()
+	FlowSpatialNoiseRegistry.clear_external_algorithms()
+	return passed
+
+
 func _test_missing_external_noise_reports_error() -> bool:
 	FlowSpatialNoiseRegistry.clear_external_algorithms()
 	var node = _execute_node(_make_point_data(), func(settings):
@@ -293,7 +347,7 @@ func _make_bounds_point_data() -> FlowData.Data:
 	return data
 
 
-func _execute_node(in_data : FlowData.Data, configure : Callable):
+func _execute_node(in_data : FlowData.Data, configure : Callable, extra_inputs := [], args_ports := {}):
 	var node = SpatialNoiseNode.new()
 	node.name = "spatial_noise"
 	node.settings = SpatialNoiseSettings.new()
@@ -301,6 +355,9 @@ func _execute_node(in_data : FlowData.Data, configure : Callable):
 	node.deps = _empty_connections()
 	node.dependants = _empty_connections()
 	node.inputs = [in_data]
+	for extra_input in extra_inputs:
+		node.inputs.append(extra_input)
+	node.args_ports_by_name = args_ports
 
 	var ctx = FlowDataScript.EvaluationContext.new()
 	node.preExecute(ctx)
@@ -324,6 +381,29 @@ func _empty_connections() -> Array[Dictionary]:
 func _sample_external_constant(context : Dictionary) -> Dictionary:
 	var parameters : Dictionary = context.get("algorithm_parameters", {})
 	return { "ok": true, "value": float(parameters.get("value", 0.5)) }
+
+
+func _sample_external_seed(context : Dictionary) -> Dictionary:
+	return {
+		"ok": true,
+		"value": float(context.get("random_seed", -1)),
+		"adjusted": true,
+	}
+
+
+func _sample_external_adjusted(context : Dictionary) -> Dictionary:
+	var parameters : Dictionary = context.get("algorithm_parameters", {})
+	return {
+		"ok": true,
+		"value": float(parameters.get("value", 0.0)),
+		"adjusted": true,
+	}
+
+
+func _single_int_data(stream_name : String, value : int) -> FlowData.Data:
+	var data := FlowDataScript.Data.new()
+	data.registerStream(stream_name, PackedInt32Array([value]), FlowDataScript.DataType.Int)
+	return data
 
 
 func _find_property(object : Object, property_name : String) -> Dictionary:

@@ -19,14 +19,20 @@ func _target_is_none(target_name : String) -> bool:
 	var trimmed := target_name.strip_edges()
 	return trimmed == "" or trimmed.to_lower() == "none"
 
-func _random_offset_from_seed(max_offset : Vector3) -> Vector3:
+func _random_offset_from_seed(max_offset : Vector3, seed : int) -> Vector3:
 	var random_source := RandomNumberGenerator.new()
-	random_source.seed = int(settings.random_seed)
+	random_source.seed = seed
 	return Vector3(
 		max_offset.x * random_source.randf(),
 		max_offset.y * random_source.randf(),
 		max_offset.z * random_source.randf()
 	)
+
+func _resolved_algorithm_parameters(ctx : FlowData.EvaluationContext) -> Dictionary:
+	var raw_parameters = getSettingValue(ctx, "algorithm_parameters", settings.algorithm_parameters)
+	if raw_parameters is Dictionary:
+		return raw_parameters.duplicate()
+	return {}
 
 func _get_position_stream(in_data : FlowData.Data):
 	var position_stream = in_data.findStream(FlowData.AttrPosition)
@@ -90,9 +96,11 @@ func execute(ctx : FlowData.EvaluationContext):
 	var iterations : int = maxi(1, int(getSettingValue(ctx, "iterations", settings.iterations)))
 	var brightness : float = float(getSettingValue(ctx, "brightness", settings.brightness))
 	var contrast : float = float(getSettingValue(ctx, "contrast", settings.contrast))
+	var random_seed : int = int(getSettingValue(ctx, "random_seed", settings.random_seed))
 	var random_offset_limit : Vector3 = getSettingValue(ctx, "random_offset", settings.random_offset)
-	var random_offset := _random_offset_from_seed(random_offset_limit)
+	var random_offset := _random_offset_from_seed(random_offset_limit, random_seed)
 	var bounds := FlowSpatialNoiseBuiltin.position_bounds_2d(position_stream, point_count)
+	var algorithm_parameters := _resolved_algorithm_parameters(ctx)
 
 	var values := PackedFloat32Array()
 	values.resize(point_count)
@@ -116,7 +124,8 @@ func execute(ctx : FlowData.EvaluationContext):
 			"iterations": iterations,
 			"brightness": brightness,
 			"contrast": contrast,
-			"algorithm_parameters": settings.algorithm_parameters,
+			"random_seed": random_seed,
+			"algorithm_parameters": algorithm_parameters,
 		}
 		var sample := _sample_algorithm(algorithm, mode_id, context)
 		if not bool(sample.get("ok", false)):

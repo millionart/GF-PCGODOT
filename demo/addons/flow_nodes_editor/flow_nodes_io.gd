@@ -382,7 +382,7 @@ static func create_nodes_from_dict( dict, editor : Control, paste_offset = null,
 		var new_name = in_name
 		if editor.gedit_nodes_by_name.has( in_name ):
 			new_name = editor.getNewName(node_template)
-		var node = editor.addNodeFromTemplate( node_template, new_name )
+		var node = editor.addNodeFromTemplate( node_template, new_name, null, false )
 		if not node:
 			return null
 		var in_pos = _parse_vector2( in_node.position )

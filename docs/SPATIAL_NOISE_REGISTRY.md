@@ -19,7 +19,7 @@ if err != "":
 	push_error(err)
 ```
 
-External ids without `/` are rejected, and external plugins cannot override built-in UE mode names. The graph stores the mode id string, not the dropdown index, so adding or reordering plugin algorithms does not change existing graphs. If a graph references a plugin algorithm that is no longer registered, `Spatial Noise` reports a missing algorithm error and does not fall back to another mode.
+External ids without `/` are rejected, and external plugins cannot override built-in UE mode names. Do not pass a shortened `label` that hides the namespace; the user-visible mode name must remain the full namespaced id (`PluginName/NoiseName`). The graph stores the mode id string, not the dropdown index, so adding or reordering plugin algorithms does not change existing graphs. If a graph references a plugin algorithm that is no longer registered, `Spatial Noise` reports a missing algorithm error and does not fall back to another mode.
 
 Sampler contract:
 
@@ -53,5 +53,7 @@ Return keys:
 | `value` | Yes | Raw noise value. Flow applies Brightness and Contrast unless `adjusted` is true. |
 | `adjusted` | Optional | Set true if the sampler already applied Brightness/Contrast. |
 | `error` | On failure | Message shown on the node. |
+
+`adjusted=true` is a generic escape hatch for external algorithms that must preserve their source algorithm's own output range or mapping. When it is set, `Spatial Noise` writes the returned value as-is and skips the node's Brightness/Contrast post-process. Use it only when the plugin algorithm owns that output mapping; otherwise return a raw value without `adjusted` and let the node apply its common post-process.
 
 Built-in UE modes may also return internal keys such as `cell_id` and `rotation`; plugin samplers should not rely on those unless the plugin owns the corresponding output behavior.

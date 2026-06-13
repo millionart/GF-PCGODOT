@@ -640,6 +640,35 @@ func exposedAsInputNode( prop ):
 		return false
 	return true
 
+func _has_saved_connected_arg_port(prop_name: String) -> bool:
+	if not args_ports_by_name.has(prop_name):
+		return false
+	var arg_port = args_ports_by_name[prop_name]
+	if arg_port is Dictionary:
+		return bool(arg_port.get("connected", false))
+	return false
+
+func _append_saved_connected_arg_params(params: Array, param_names: Dictionary) -> void:
+	for arg_name in args_ports_by_name:
+		var prop_name := String(arg_name)
+		if param_names.has(prop_name) or not _has_saved_connected_arg_port(prop_name):
+			continue
+		if settings == null or not (prop_name in settings):
+			continue
+		var value = settings.get(prop_name)
+		var data = {
+			"name" : arg_name,
+			"label" : editorDisplayName(prop_name),
+			"type" : typeof(value),
+			"data_type" : getFlowDataTypeFromObject(value),
+			"is_parameter" : true,
+			"port" : -1,
+		}
+		if not exposedAsInputNode(data):
+			continue
+		params.append(data)
+		param_names[prop_name] = true
+
 func getExposedParams():
 	var meta := getMeta()
 	if meta.get( "hide_inputs", false ):
@@ -649,6 +678,7 @@ func getExposedParams():
 	var props = settings.get_property_list()
 	var inside_my_vars := false
 	var params = []
+	var param_names := {}
 	for prop in props:
 		if trace:
 			print( "Input.", prop.name)
@@ -660,7 +690,11 @@ func getExposedParams():
 			inside_my_vars = true
 		if !(prop.usage & PROPERTY_USAGE_STORAGE) || !(prop.usage & PROPERTY_USAGE_EDITOR):
 			continue
-		if !inside_my_vars:
+		var prop_name := String(prop.name)
+		var saved_connected_arg := _has_saved_connected_arg_port(prop_name)
+		if !inside_my_vars and not saved_connected_arg:
+			continue
+		if settings.has_method("exposeParam") and not settings.exposeParam(prop.name) and not saved_connected_arg:
 			continue
 			
 		var data = {
@@ -676,6 +710,8 @@ func getExposedParams():
 			continue
 		
 		params.append( data )
+		param_names[prop_name] = true
+	_append_saved_connected_arg_params(params, param_names)
 	return params
 
 func getEditor():
@@ -734,7 +770,7 @@ func initFromScript():
 		
 		if not show_disconnected_inputs:
 			exposed_params = exposed_params.filter( func( data ):
-				return args_ports_by_name.has( data.name ) and args_ports_by_name[ data.name ].connected
+				return args_ports_by_name.has( data.name ) and (args_ports_by_name[ data.name ].connected or connected_inputs_by_name.has(data.name))
 			)
 	else:
 		# When we just instantiate the node
