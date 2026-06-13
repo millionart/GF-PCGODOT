@@ -548,10 +548,12 @@ func _add_native_property_editor(parent: VBoxContainer, object: Object, prop: Di
 		edited_property: StringName,
 		value,
 		_field: StringName,
-		_changing: bool,
+		changing: bool,
 	):
 		var edited_property_name := String(edited_property)
 		object.set(edited_property_name, value)
+		if changing:
+			return
 		if object is Resource:
 			object.emit_changed()
 		property_edited.emit(edited_property_name)

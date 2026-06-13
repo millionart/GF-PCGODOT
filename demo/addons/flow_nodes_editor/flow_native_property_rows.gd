@@ -93,12 +93,14 @@ func _on_property_changed(
 	property: StringName,
 	value,
 	_field: StringName,
-	_changing: bool,
+	changing: bool,
 ) -> void:
 	if edited_object == null or not is_instance_valid(edited_object):
 		return
 	var property_name := String(property)
 	edited_object.set(property_name, value)
+	if changing:
+		return
 	if edited_object is Resource:
 		edited_object.emit_changed()
 	property_edited.emit(property_name)

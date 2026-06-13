@@ -37,6 +37,7 @@ var _chrome_refs: FlowEditorChrome.Refs
 var inspector: FlowInspector
 var inspected_node : Node
 var native_inspector_target: Object
+var pending_native_inspector_edited_properties := {}
 var editor_settings_proxy: FlowEditorSettingsProxy
 var retired_graph_frame_counter := 0
 var internal_inspector_floating_mode := false
@@ -2385,6 +2386,35 @@ func _get_native_inspector_edited_object() -> Object:
 		return native_inspector_target
 	return native_inspector.get_edited_object()
 
+static func is_text_editing_control(control: Control) -> bool:
+	var current: Node = control
+	while current != null:
+		if current is LineEdit or current is TextEdit or current is SpinBox:
+			return true
+		current = current.get_parent()
+	return false
+
+func _is_text_editing_focus_active() -> bool:
+	var focused := get_viewport().gui_get_focus_owner()
+	return focused != null and is_text_editing_control(focused)
+
+func _queue_native_inspector_property_edited_until_text_edit_finished(prop_name: String) -> bool:
+	var focused := get_viewport().gui_get_focus_owner()
+	if focused == null or not is_text_editing_control(focused):
+		return false
+	pending_native_inspector_edited_properties[prop_name] = true
+	if not focused.focus_exited.is_connected(_flush_pending_native_inspector_edits):
+		focused.focus_exited.connect(_flush_pending_native_inspector_edits, CONNECT_ONE_SHOT)
+	return true
+
+func _flush_pending_native_inspector_edits() -> void:
+	if pending_native_inspector_edited_properties.is_empty():
+		return
+	var properties := pending_native_inspector_edited_properties.keys()
+	pending_native_inspector_edited_properties.clear()
+	for prop_name in properties:
+		_apply_native_inspector_property_edited(String(prop_name))
+
 func _graph_resource_contains_parameter(param: Object, parameters: Array) -> bool:
 	for candidate in parameters:
 		if candidate == param:
@@ -2392,6 +2422,11 @@ func _graph_resource_contains_parameter(param: Object, parameters: Array) -> boo
 	return false
 
 func _on_native_inspector_property_edited(prop_name: String) -> void:
+	if _queue_native_inspector_property_edited_until_text_edit_finished(prop_name):
+		return
+	_apply_native_inspector_property_edited(prop_name)
+
+func _apply_native_inspector_property_edited(prop_name: String) -> void:
 	var edited_object := _get_native_inspector_edited_object()
 	if edited_object == null:
 		return
@@ -2675,12 +2710,9 @@ func _input(event: InputEvent):
 	if not key_event.pressed or key_event.echo:
 		return
 	
-	# Don't intercept when a text field has focus (LineEdit, TextEdit, SpinBox)
+	if _is_text_editing_focus_active():
+		return
 	var focused = get_viewport().gui_get_focus_owner()
-	if focused is LineEdit or focused is TextEdit:
-		return
-	if focused and focused.get_parent() is SpinBox:
-		return
 	# Only intercept when focus is within this editor's subtree
 	if focused and not is_ancestor_of(focused):
 		return
@@ -3887,6 +3919,8 @@ func _on_graph_edit_gui_input(event):
 
 	var evt_key = event as InputEventKey
 	if evt_key and evt_key.pressed:
+		if _is_text_editing_focus_active():
+			return
 		var no_modifiers = not evt_key.ctrl_pressed and not evt_key.alt_pressed and not evt_key.shift_pressed
 		var key = evt_key.keycode
 		if key == KEY_X or key == KEY_DELETE:
