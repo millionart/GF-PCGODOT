@@ -13,6 +13,7 @@ func _init() -> void:
 	passed = _test_flow_inspector_text_edits_are_deferred(source) and passed
 	passed = _test_box_select_defers_selection_inspection(source) and passed
 	passed = _test_node_move_toggles_low_latency_connection_lines(source) and passed
+	passed = _test_blank_click_hides_floating_internal_inspector(source) and passed
 
 	if not passed:
 		push_error("FlowEditorHotkeyRoutingTest failed.")
@@ -111,6 +112,29 @@ func _test_node_move_toggles_low_latency_connection_lines(source: String) -> boo
 		and _expect(
 			end_body.contains("set_interaction_low_latency") and end_body.contains("false"),
 			"Node move should disable low-latency connection lines."
+		)
+	)
+
+
+func _test_blank_click_hides_floating_internal_inspector(source: String) -> bool:
+	var input_body := _function_body(source, "_on_graph_edit_gui_input")
+	var hide_body := _function_body(source, "_hide_internal_inspector_on_blank_click")
+	return (
+		_expect(
+			input_body.contains("_hide_internal_inspector_on_blank_click(evt_mouse)"),
+			"Plain blank GraphEdit clicks should hide the floating internal inspector."
+		)
+		and _expect(
+			hide_body.contains("internal_inspector_floating_mode"),
+			"Blank-click inspector hiding should only run for floating internal inspector mode."
+		)
+		and _expect(
+			hide_body.contains("_get_graph_element_at_local_position(event.position)"),
+			"Blank-click inspector hiding should not run when clicking a node or comment frame."
+		)
+		and _expect(
+			hide_body.contains("_clear_current_inspector()") and hide_body.contains("_apply_internal_inspector_mode(true)"),
+			"Blank-click inspector hiding should clear and relayout the internal inspector."
 		)
 	)
 

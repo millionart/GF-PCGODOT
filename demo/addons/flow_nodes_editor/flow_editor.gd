@@ -1150,6 +1150,19 @@ func _clear_current_inspector() -> void:
 		native_inspector.edit(null)
 
 
+func _hide_internal_inspector_on_blank_click(event: InputEventMouseButton) -> void:
+	if not internal_inspector_floating_mode:
+		return
+	if not event.pressed or event.button_index != MOUSE_BUTTON_LEFT:
+		return
+	if event.double_click or event.ctrl_pressed or event.alt_pressed or event.shift_pressed:
+		return
+	if _get_graph_element_at_local_position(event.position) != null:
+		return
+	_clear_current_inspector()
+	_apply_internal_inspector_mode(true)
+
+
 func _inspector_is_showing_current_graph_resource() -> bool:
 	if current_resource == null:
 		return false
@@ -4019,6 +4032,7 @@ func _on_graph_edit_gui_input(event):
 	var evt_mouse = event as InputEventMouseButton
 	_track_left_box_select_drag(event)
 	if evt_mouse and evt_mouse.pressed and evt_mouse.button_index == MOUSE_BUTTON_LEFT and not evt_mouse.double_click:
+		_hide_internal_inspector_on_blank_click(evt_mouse)
 		prepare_graph_for_interaction()
 	if evt_mouse and evt_mouse.pressed and evt_mouse.button_index == MOUSE_BUTTON_LEFT and evt_mouse.double_click:
 		var conn_to_reroute = _find_nearest_connection(evt_mouse.position)
