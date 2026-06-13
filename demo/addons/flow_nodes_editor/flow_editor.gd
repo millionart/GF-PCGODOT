@@ -174,7 +174,8 @@ const EVAL_CACHE_UNCACHEABLE_TEMPLATES := {
 const EDITOR_DYNAMIC_UI_META := &"flow_editor_dynamic_ui"
 var right_drag_pan_active := false
 var right_drag_pan_moved := false
-var right_drag_pan_start_position := Vector2.ZERO
+var right_drag_pan_start_viewport_position := Vector2.ZERO
+var right_drag_pan_total_distance := 0.0
 var right_drag_pan_start_scroll := Vector2.ZERO
 var left_box_select_active := false
 var left_box_select_moved := false
@@ -2817,6 +2818,9 @@ func _refresh_node_translations() -> void:
 func _input(event: InputEvent):
 	if not visible or not is_visible_in_tree():
 		return
+	if _handle_active_right_mouse_pan_input(event):
+		get_viewport().set_input_as_handled()
+		return
 	if not event is InputEventKey:
 		return
 	var key_event := event as InputEventKey
@@ -3974,35 +3978,72 @@ func insertRerouteOnConnection(conn: Dictionary, local_position: Vector2) -> Flo
 	record_undo_action("Insert Reroute", before_state)
 	return reroute
 
+func _graph_local_to_viewport_position(local_position: Vector2) -> Vector2:
+	return gedit.get_global_transform_with_canvas() * local_position
+
+func _viewport_to_graph_local_position(viewport_position: Vector2) -> Vector2:
+	return gedit.get_global_transform_with_canvas().affine_inverse() * viewport_position
+
+func _begin_right_mouse_pan(local_position: Vector2) -> void:
+	right_drag_pan_active = true
+	right_drag_pan_moved = false
+	right_drag_pan_start_viewport_position = _graph_local_to_viewport_position(local_position)
+	right_drag_pan_total_distance = 0.0
+	right_drag_pan_start_scroll = gedit.scroll_offset
+
+func _update_right_mouse_pan(screen_delta: Vector2) -> void:
+	if screen_delta.is_zero_approx():
+		return
+	right_drag_pan_total_distance += screen_delta.length()
+	gedit.scroll_offset -= screen_delta
+	if not right_drag_pan_moved and right_drag_pan_total_distance >= RIGHT_DRAG_PAN_THRESHOLD:
+		right_drag_pan_moved = true
+
+func _end_right_mouse_pan(viewport_position: Vector2) -> void:
+	var local_position := _viewport_to_graph_local_position(viewport_position)
+	var was_drag := (
+		right_drag_pan_moved
+		or right_drag_pan_total_distance >= RIGHT_DRAG_PAN_THRESHOLD
+		or viewport_position.distance_to(right_drag_pan_start_viewport_position) >= RIGHT_DRAG_PAN_THRESHOLD
+	)
+	right_drag_pan_active = false
+	right_drag_pan_moved = false
+	if not was_drag:
+		gedit.scroll_offset = right_drag_pan_start_scroll
+		suppress_next_popup_request = true
+		call_deferred("_clear_suppressed_popup_request")
+		_open_context_menu_for_right_click(local_position)
+
+func _handle_active_right_mouse_pan_input(event: InputEvent) -> bool:
+	if not right_drag_pan_active:
+		return false
+	var evt_motion := event as InputEventMouseMotion
+	if evt_motion != null:
+		_update_right_mouse_pan(evt_motion.relative)
+		return true
+	var evt_mouse := event as InputEventMouseButton
+	if evt_mouse != null and evt_mouse.button_index == MOUSE_BUTTON_RIGHT and not evt_mouse.pressed:
+		_end_right_mouse_pan(evt_mouse.position)
+		return true
+	return false
+
 func _handle_right_mouse_pan(event: InputEvent) -> bool:
 	var evt_mouse := event as InputEventMouseButton
 	if evt_mouse and evt_mouse.button_index == MOUSE_BUTTON_RIGHT:
 		if evt_mouse.pressed:
-			right_drag_pan_active = true
-			right_drag_pan_moved = false
-			right_drag_pan_start_position = evt_mouse.position
-			right_drag_pan_start_scroll = gedit.scroll_offset
+			_begin_right_mouse_pan(evt_mouse.position)
 			gedit.accept_event()
 			return true
 
 		if right_drag_pan_active:
-			var was_drag := right_drag_pan_moved or evt_mouse.position.distance_to(right_drag_pan_start_position) >= RIGHT_DRAG_PAN_THRESHOLD
-			right_drag_pan_active = false
-			right_drag_pan_moved = false
+			_end_right_mouse_pan(_graph_local_to_viewport_position(evt_mouse.position))
 			gedit.accept_event()
-			if not was_drag:
-				suppress_next_popup_request = true
-				call_deferred("_clear_suppressed_popup_request")
-				_open_context_menu_for_right_click(evt_mouse.position)
 			return true
 		return false
 
 	var evt_motion := event as InputEventMouseMotion
 	if evt_motion and right_drag_pan_active:
-		var delta := evt_motion.position - right_drag_pan_start_position
-		if right_drag_pan_moved or delta.length() >= RIGHT_DRAG_PAN_THRESHOLD:
-			right_drag_pan_moved = true
-			gedit.scroll_offset = right_drag_pan_start_scroll - delta
+		_update_right_mouse_pan(evt_motion.relative)
 		gedit.accept_event()
 		return true
 

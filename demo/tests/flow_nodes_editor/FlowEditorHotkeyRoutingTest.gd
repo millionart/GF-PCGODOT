@@ -14,6 +14,7 @@ func _init() -> void:
 	passed = _test_box_select_defers_selection_inspection(source) and passed
 	passed = _test_node_move_toggles_low_latency_connection_lines(source) and passed
 	passed = _test_blank_click_hides_floating_internal_inspector(source) and passed
+	passed = _test_right_drag_pan_uses_screen_delta(source) and passed
 
 	if not passed:
 		push_error("FlowEditorHotkeyRoutingTest failed.")
@@ -135,6 +136,43 @@ func _test_blank_click_hides_floating_internal_inspector(source: String) -> bool
 		and _expect(
 			hide_body.contains("_clear_current_inspector()") and hide_body.contains("_apply_internal_inspector_mode(true)"),
 			"Blank-click inspector hiding should clear and relayout the internal inspector."
+		)
+	)
+
+
+func _test_right_drag_pan_uses_screen_delta(source: String) -> bool:
+	var input_body := _function_body(source, "_input")
+	var pan_body := _function_body(source, "_handle_right_mouse_pan")
+	var active_body := _function_body(source, "_handle_active_right_mouse_pan_input")
+	var update_body := _function_body(source, "_update_right_mouse_pan")
+	return (
+		_expect(
+			input_body.contains("_handle_active_right_mouse_pan_input(event)"),
+			"Active right-drag panning should capture motion from _input so child controls cannot interrupt it."
+		)
+		and _expect(
+			active_body.contains("_update_right_mouse_pan(evt_motion.relative)"),
+			"Viewport-level mouse motion should update active right-drag panning from raw movement delta."
+		)
+		and _expect(
+			active_body.contains("_end_right_mouse_pan(evt_mouse.position)"),
+			"Viewport-level right mouse release should end active right-drag panning."
+		)
+		and _expect(
+			update_body.contains("gedit.scroll_offset -= screen_delta"),
+			"Right-drag panning should update the view from each screen-space cursor delta."
+		)
+		and _expect(
+			update_body.contains("right_drag_pan_total_distance += screen_delta.length()"),
+			"Right-drag panning should use accumulated travel distance for click-vs-drag detection."
+		)
+		and _expect(
+			not pan_body.contains("delta / maxf(gedit.zoom") and not update_body.contains("screen_delta / maxf(gedit.zoom"),
+			"Right-drag panning should not divide mouse delta by zoom."
+		)
+		and _expect(
+			not update_body.contains("sync_scroll_offset_immediately") and not update_body.contains("queue_redraw()"),
+			"Right-drag panning should not do extra per-motion redraw or GDScript layout work."
 		)
 	)
 
