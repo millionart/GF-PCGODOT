@@ -14,6 +14,7 @@ func _init() -> void:
 	passed = _test_flow_data_exposes_implicit_index() and passed
 	passed = _test_custom_dollar_stream_names_are_rejected() and passed
 	passed = _test_attribute_selector_includes_index() and passed
+	passed = _test_empty_attribute_selector_stays_clickable() and passed
 	passed = _test_get_attribute_from_point_index_reads_index() and passed
 	passed = _test_sort_attributes_reads_index() and passed
 
@@ -58,6 +59,28 @@ func _test_attribute_selector_includes_index() -> bool:
 	var names := FlowNodeInspectorContextControlsScript.get_input_stream_names(node, 0)
 	node.free()
 	return _expect(names.has(str(FlowDataScript.AttrIndex)), "Attribute selector should offer '$Index'")
+
+
+func _test_empty_attribute_selector_stays_clickable() -> bool:
+	var node: FlowNodeBase = FlowNodeBaseScript.new()
+	node.settings = GetAttributeFromPointIndexSettings.new()
+	node.inputs = [null]
+	var control := FlowNodeInspectorContextControlsScript.create_attribute_selector(
+		node,
+		node.settings,
+		"input_attribute_name",
+		0,
+		Callable(),
+		11
+	)
+	var option := _find_first_option_button(control)
+	var passed := (
+		_expect(option != null, "Attribute selector should create an OptionButton")
+		and _expect(not option.disabled, "Empty attribute selector should stay clickable for lazy refresh")
+	)
+	control.free()
+	node.free()
+	return passed
 
 
 func _test_get_attribute_from_point_index_reads_index() -> bool:
@@ -131,6 +154,16 @@ func _get_output(node, port : int):
 
 func _empty_connections() -> Array[Dictionary]:
 	return []
+
+
+func _find_first_option_button(root: Node) -> OptionButton:
+	if root is OptionButton:
+		return root as OptionButton
+	for child in root.get_children():
+		var found := _find_first_option_button(child)
+		if found != null:
+			return found
+	return null
 
 
 func _expect_ints(data, stream_name : String, expected : PackedInt32Array, message : String) -> bool:

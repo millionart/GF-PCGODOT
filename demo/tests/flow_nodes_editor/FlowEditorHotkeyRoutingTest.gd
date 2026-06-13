@@ -95,8 +95,8 @@ func _test_box_select_defers_selection_inspection(source: String) -> bool:
 			"GraphEdit input should track box-select drag state."
 		)
 		and _expect(
-			deferred_body.contains("_inspect_graph_element(selected_nodes[0])"),
-			"Final single-node box selection should inspect once after release."
+			deferred_body.contains("_inspect_graph_element(selected_nodes[0], false)"),
+			"Final single-node box selection should inspect once after release without prefetching attribute lists."
 		)
 	)
 

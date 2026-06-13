@@ -1123,7 +1123,7 @@ func _restore_inspector_state(state: Dictionary) -> bool:
 		var node_name := String(state.get("name", ""))
 		var node := gedit.get_node_or_null(NodePath(node_name)) if gedit != null and node_name != "" else null
 		if node is GraphNode or node is GraphFrame:
-			_inspect_graph_element(node)
+			_inspect_graph_element(node, false)
 			return true
 	return false
 
@@ -1132,10 +1132,10 @@ func _sync_inspector_from_current_selection() -> void:
 	var selected_nodes := getSelectedNodes()
 	var selected_frames := getSelectedFrames()
 	if selected_nodes.size() == 1 and selected_frames.is_empty():
-		_inspect_graph_element(selected_nodes[0])
+		_inspect_graph_element(selected_nodes[0], false)
 		return
 	if selected_frames.size() == 1 and selected_nodes.is_empty():
-		_inspect_graph_element(selected_frames[0])
+		_inspect_graph_element(selected_frames[0], false)
 		return
 	_clear_current_inspector()
 
@@ -2448,11 +2448,13 @@ func _inspect_in_native(target: Object) -> void:
 		native_inspector.edit(null)
 	EditorInterface.inspect_object(target, "", true)
 
-func _inspect_graph_element(node: Node) -> void:
+func _inspect_graph_element(node: Node, prefetch_attribute_selectors: bool = false) -> void:
 	inspected_node = node
 	var target: Object = node
 	var flow_node := node as FlowNodeBase
 	if flow_node != null:
+		if prefetch_attribute_selectors:
+			_prefill_attribute_selector_inputs(flow_node)
 		if current_resource != null and (flow_node.node_template == "input" or flow_node.node_template == "output"):
 			target = current_resource
 		elif flow_node.settings != null:
@@ -2463,6 +2465,18 @@ func _inspect_graph_element(node: Node) -> void:
 		inspector.edit(node)
 		_apply_internal_inspector_mode(true)
 	_inspect_in_native(target)
+
+func _prefill_attribute_selector_inputs(node: FlowNodeBase) -> void:
+	if node == null or node.settings == null:
+		return
+	if regen_running:
+		return
+	if not node.settings.has_method("_get_attribute_selector_props"):
+		return
+	for entry in node.settings._get_attribute_selector_props():
+		var port := int(entry.get("port", 0))
+		if FlowNodeInspectorContextControls.get_input_stream_names(node, port).is_empty():
+			populateAttributeSelectorInputData(node, port)
 
 func _get_native_inspector_edited_object() -> Object:
 	var native_inspector := EditorInterface.get_inspector()
@@ -3223,6 +3237,22 @@ func _run_forced_graph_eval(analyze_node: FlowNodeBase = null) -> void:
 	if previous_owner_args is Dictionary and resource_owner != null and "args" in resource_owner:
 		resource_owner.args = previous_owner_args
 	suppress_eval_activity = prev_suppress_eval_activity
+
+func populateAttributeSelectorInputData(node: FlowNodeBase, port: int) -> bool:
+	if node == null or node.settings == null:
+		return false
+	if port < 0:
+		return false
+	if port < node.inputs.size() and node.inputs[port] is FlowData.Data:
+		return true
+	if regen_running:
+		return false
+
+	var previous_inspect_enabled := bool(node.settings.inspect_enabled)
+	node.settings.inspect_enabled = true
+	_run_forced_graph_eval(node)
+	node.settings.inspect_enabled = previous_inspect_enabled
+	return port < node.inputs.size() and node.inputs[port] is FlowData.Data
 
 func _setup_inline_analyze_panel():
 	var panel := Control.new()
@@ -4009,11 +4039,11 @@ func _inspect_graph_selection_after_box_select() -> void:
 	var selected_nodes := getSelectedNodes()
 	var selected_frames := getSelectedFrames()
 	if selected_nodes.size() == 1 and selected_frames.is_empty():
-		_inspect_graph_element(selected_nodes[0])
+		_inspect_graph_element(selected_nodes[0], false)
 		update_status_bar()
 		return
 	if selected_frames.size() == 1 and selected_nodes.is_empty():
-		_inspect_graph_element(selected_frames[0])
+		_inspect_graph_element(selected_frames[0], false)
 		update_status_bar()
 		return
 	inspected_node = null
@@ -4397,7 +4427,7 @@ func _on_graph_edit_node_selected(node):
 	prepare_graph_for_interaction()
 	inspected_node = node
 	if inspected_node:
-		_inspect_graph_element(inspected_node)
+		_inspect_graph_element(inspected_node, true)
 		
 	update_status_bar()
 

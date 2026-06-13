@@ -3,6 +3,8 @@ extends RefCounted
 class_name FlowNodeInspectorContextControls
 
 const NODE_CONTEXT_META := &"_flow_inspector_node_context"
+const ATTRIBUTE_SELECTOR_CUSTOM_ID := 1000001
+const ATTRIBUTE_SELECTOR_NO_ATTR_ID := 1000002
 
 
 static func set_node_context(settings: Object, node: FlowNodeBase) -> void:
@@ -88,7 +90,6 @@ static func create_attribute_selector(
 	font_size: int = 11,
 ) -> Control:
 	var current_val := str(settings.get(prop_name))
-	var stream_names := get_input_stream_names(node, port)
 
 	var wrapper := VBoxContainer.new()
 	wrapper.add_theme_constant_override("separation", 4)
@@ -109,40 +110,13 @@ static func create_attribute_selector(
 	edit.add_theme_stylebox_override("normal", stylebox)
 	edit.visible = false
 
-	var selected_idx := -1
-	var idx := 0
-	for stream_name in stream_names:
-		option.add_item(stream_name, idx)
-		if stream_name == current_val:
-			selected_idx = idx
-		idx += 1
-
-	var custom_idx := idx
-	option.add_separator()
-	option.add_item(FlowI18n.t("(custom...)"), custom_idx + 1)
-
-	if stream_names.is_empty():
-		option.selected = option.item_count - 1
-		option.set_item_text(option.item_count - 1, FlowI18n.t("(no attributes found)"))
-		option.disabled = true
-		option.visible = true
-		edit.visible = true
-	elif selected_idx >= 0:
-		option.selected = selected_idx
-		option.disabled = false
-		option.set_item_text(option.item_count - 1, FlowI18n.t("(custom...)"))
-		option.visible = true
-		edit.visible = false
-	else:
-		option.selected = option.item_count - 1
-		option.disabled = false
-		option.set_item_text(option.item_count - 1, FlowI18n.t("(custom...)"))
-		option.visible = true
-		edit.visible = true
+	_populate_attribute_selector_options(option, edit, current_val, get_input_stream_names(node, port))
 
 	option.item_selected.connect(func(index):
 		var item_id := option.get_item_id(index)
-		if item_id == custom_idx + 1:
+		if item_id == ATTRIBUTE_SELECTOR_NO_ATTR_ID:
+			return
+		if item_id == ATTRIBUTE_SELECTOR_CUSTOM_ID:
 			edit.visible = true
 			edit.grab_focus()
 		else:
@@ -163,6 +137,39 @@ static func create_attribute_selector(
 	wrapper.add_child(option)
 	wrapper.add_child(edit)
 	return wrapper
+
+
+static func _populate_attribute_selector_options(
+	option: OptionButton,
+	edit: LineEdit,
+	current_val: String,
+	stream_names: PackedStringArray,
+) -> void:
+	option.clear()
+	var selected_idx := -1
+	var idx := 0
+	for stream_name in stream_names:
+		option.add_item(stream_name, idx)
+		if stream_name == current_val:
+			selected_idx = idx
+		idx += 1
+
+	option.disabled = false
+	option.visible = true
+	if stream_names.is_empty():
+		option.add_item(FlowI18n.t("(no attributes found)"), ATTRIBUTE_SELECTOR_NO_ATTR_ID)
+		option.selected = 0
+		edit.visible = true
+		return
+
+	option.add_separator()
+	option.add_item(FlowI18n.t("(custom...)"), ATTRIBUTE_SELECTOR_CUSTOM_ID)
+	if selected_idx >= 0:
+		option.selected = selected_idx
+		edit.visible = false
+	else:
+		option.selected = option.item_count - 1
+		edit.visible = true
 
 
 static func create_variable_selector(

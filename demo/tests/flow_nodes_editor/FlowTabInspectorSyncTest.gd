@@ -31,11 +31,11 @@ func _test_tab_switch_syncs_inspector(source: String) -> bool:
 			"Tab switch should restore the active tab's cached inspector state before using selection fallback."
 		)
 		and _expect(
-			selection_body.contains("_inspect_graph_element(selected_nodes[0])"),
+			selection_body.contains("_inspect_graph_element(selected_nodes[0], false)"),
 			"Single selected node should be inspected after tab switch."
 		)
 		and _expect(
-			selection_body.contains("_inspect_graph_element(selected_frames[0])"),
+			selection_body.contains("_inspect_graph_element(selected_frames[0], false)"),
 			"Single selected frame should be inspected after tab switch."
 		)
 	)
@@ -64,7 +64,7 @@ func _test_tab_switch_caches_per_tab_inspector_state(source: String) -> bool:
 			"Restored graph-level panels should update both Flow and native inspectors."
 		)
 		and _expect(
-			restore_body.contains("_inspect_graph_element(node)"),
+			restore_body.contains("_inspect_graph_element(node, false)"),
 			"Restored node or comment inspector state should re-inspect that graph element."
 		)
 		and _expect(
