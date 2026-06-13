@@ -295,11 +295,26 @@ func _edit(object: Object) -> void:
 		return
 	call_deferred("_open_flow_graph_resource_from_filesystem", graph_resource)
 
+func _is_active_graph_resource(graph_resource: FlowGraphResource) -> bool:
+	if graph_resource == null or not _has_valid_graph_dock():
+		return false
+	var current_resource := graph_dock.current_resource as FlowGraphResource
+	if current_resource == graph_resource:
+		return true
+	if current_resource == null:
+		return false
+	if current_resource.resource_path == "" or graph_resource.resource_path == "":
+		return false
+	return current_resource.resource_path == graph_resource.resource_path
+
 func _open_flow_graph_resource_from_filesystem(graph_resource: FlowGraphResource) -> void:
 	if graph_resource == null:
 		return
 	_ensure_graph_dock()
 	if not _has_valid_graph_dock():
+		return
+	if _is_active_graph_resource(graph_resource):
+		_make_graph_dock_visible()
 		return
 	_make_graph_dock_visible()
 	if graph_resource.resource_path != "":

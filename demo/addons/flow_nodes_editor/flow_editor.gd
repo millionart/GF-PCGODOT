@@ -61,6 +61,9 @@ const EDITOR_SETTING_TRACK_EXTERNAL_EDITS := "addons/flow_nodes_editor/track_ext
 const MCP_FORCE_FLOATING_META := &"flow_mcp_force_graph_panel_floating"
 const TOOLBAR_EXTENSION_ID_META := &"flow_toolbar_extension_id"
 const DOCUMENT_PREVIEW_OWNER_NAME := "FlowDocumentPreviewOwner"
+const INSPECTOR_STATE_NONE := "none"
+const INSPECTOR_STATE_GRAPH_RESOURCE := "graph_resource"
+const INSPECTOR_STATE_GRAPH_ELEMENT := "graph_element"
 
 # New nodes generation using the editor
 var local_drop_position : Vector2 = Vector2(0,0)
@@ -605,6 +608,7 @@ func _cache_active_tab_graph_ui() -> void:
 	open_tabs[active_tab_index]["cached_graph_edit"] = gedit
 	open_tabs[active_tab_index]["cached_gedit_nodes_by_name"] = gedit_nodes_by_name.duplicate()
 	open_tabs[active_tab_index]["cached_input_sources"] = _copy_input_sources()
+	open_tabs[active_tab_index]["cached_inspector_state"] = _capture_current_inspector_state()
 	open_tabs[active_tab_index]["graph_ui_cached"] = true
 	_set_graph_edit_menu_panel_visible(gedit, false)
 	gedit.name = "__cached_graph_edit_%d" % active_tab_index
@@ -654,6 +658,7 @@ func _clear_tab_cached_graph_ui_state(index: int) -> void:
 	open_tabs[index].erase("cached_graph_edit")
 	open_tabs[index].erase("cached_gedit_nodes_by_name")
 	open_tabs[index].erase("cached_input_sources")
+	open_tabs[index].erase("cached_inspector_state")
 	open_tabs[index]["graph_ui_cached"] = false
 
 
@@ -1078,7 +1083,83 @@ func _finish_tab_switch(index: int, restored_cached_ui: bool) -> void:
 	populatePopupOutputsMenu()
 	tab_bar.current_tab = index
 	_update_tab_titles()
+	_sync_inspector_after_tab_switch()
 	update_status_bar()
+
+
+func _sync_inspector_after_tab_switch() -> void:
+	if _active_tab_is_valid() and open_tabs[active_tab_index].has("cached_inspector_state"):
+		var cached_state: Dictionary = open_tabs[active_tab_index].get("cached_inspector_state", {})
+		if _restore_inspector_state(cached_state):
+			return
+	_sync_inspector_from_current_selection()
+
+
+func _capture_current_inspector_state() -> Dictionary:
+	if _inspector_is_showing_current_graph_resource():
+		return {"kind": INSPECTOR_STATE_GRAPH_RESOURCE}
+	if inspected_node != null and is_instance_valid(inspected_node):
+		return {
+			"kind": INSPECTOR_STATE_GRAPH_ELEMENT,
+			"name": String(inspected_node.name),
+		}
+	return {"kind": INSPECTOR_STATE_NONE}
+
+
+func _restore_inspector_state(state: Dictionary) -> bool:
+	var kind := String(state.get("kind", INSPECTOR_STATE_NONE))
+	if kind == INSPECTOR_STATE_NONE:
+		_clear_current_inspector()
+		return true
+	if kind == INSPECTOR_STATE_GRAPH_RESOURCE and current_resource != null:
+		inspected_node = null
+		_ensure_inspector()
+		if inspector != null:
+			inspector.edit(current_resource)
+			_apply_internal_inspector_mode(true)
+		_inspect_in_native(current_resource)
+		return true
+	if kind == INSPECTOR_STATE_GRAPH_ELEMENT:
+		var node_name := String(state.get("name", ""))
+		var node := gedit.get_node_or_null(NodePath(node_name)) if gedit != null and node_name != "" else null
+		if node is GraphNode or node is GraphFrame:
+			_inspect_graph_element(node)
+			return true
+	return false
+
+
+func _sync_inspector_from_current_selection() -> void:
+	var selected_nodes := getSelectedNodes()
+	var selected_frames := getSelectedFrames()
+	if selected_nodes.size() == 1 and selected_frames.is_empty():
+		_inspect_graph_element(selected_nodes[0])
+		return
+	if selected_frames.size() == 1 and selected_nodes.is_empty():
+		_inspect_graph_element(selected_frames[0])
+		return
+	_clear_current_inspector()
+
+
+func _clear_current_inspector() -> void:
+	inspected_node = null
+	native_inspector_target = null
+	if inspector != null:
+		inspector.edit(null)
+	var native_inspector := EditorInterface.get_inspector()
+	if native_inspector != null:
+		native_inspector.edit(null)
+
+
+func _inspector_is_showing_current_graph_resource() -> bool:
+	if current_resource == null:
+		return false
+	if inspected_node != null and is_instance_valid(inspected_node):
+		return false
+	if native_inspector_target == current_resource:
+		return true
+	if inspector == null or not is_instance_valid(inspector):
+		return false
+	return inspector.current_target == current_resource
 
 
 func _resource_has_serialized_nodes(resource: FlowGraphResource) -> bool:
