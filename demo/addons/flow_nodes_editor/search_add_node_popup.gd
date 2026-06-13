@@ -51,6 +51,11 @@ var sub_scroll_max := 0.0
 var active_hovered_category = ""
 var sub_panel_hide_timer: SceneTreeTimer = null
 
+
+func _init() -> void:
+	auto_translate_mode = Node.AUTO_TRANSLATE_MODE_DISABLED
+
+
 func _ready():
 	auto_translate_mode = Node.AUTO_TRANSLATE_MODE_DISABLED
 	# Configure popup window/panel

@@ -49,15 +49,15 @@ func _test_search_popup_disables_engine_auto_translation() -> bool:
 
 
 func _test_custom_title_survives_node_translation_disabled() -> bool:
-	var node := _make_node("Switch", "Route By Biome")
+	var node: FlowNodeBase = _make_node("Switch", "Route By Biome")
 	FlowI18nScript.set_node_translation_enabled(false)
 	var passed := _expect(node.getLocalizedTitle() == "Route By Biome", "Custom node title should not be replaced by template title")
 	node.free()
 	return passed
 
 
-func _make_node(template_title : String, settings_title : String):
-	var node = FlowNodeBaseScript.new()
+func _make_node(template_title : String, settings_title : String) -> FlowNodeBase:
+	var node: FlowNodeBase = FlowNodeBaseScript.new()
 	node.meta_node = { "title": template_title }
 	node.settings = NodeSettingsScript.new()
 	node.settings.title = settings_title

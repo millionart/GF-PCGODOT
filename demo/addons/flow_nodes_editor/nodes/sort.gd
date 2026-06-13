@@ -1,5 +1,7 @@
 @tool
-extends FlowNodeBase
+extends "res://addons/flow_nodes_editor/node.gd"
+
+const SortNodeSettings = preload("res://addons/flow_nodes_editor/nodes/sort_settings.gd")
 
 func _init():
 	meta_node = {

@@ -81,20 +81,21 @@ func _execute_sort(in_data : FlowData.Data, sort_by : String, sort_method : int,
 	node.settings.sort_by = sort_by
 	node.settings.sort_method = sort_method
 	node.settings.use_stable_sort = stable
-	node.deps = []
-	node.dependants = []
-	node.inputs = [in_data]
+	node.set("deps", [])
+	node.set("dependants", [])
+	node.set("inputs", [in_data])
 
 	var ctx = FlowDataScript.EvaluationContext.new()
-	node.preExecute(ctx)
-	node.execute(ctx)
+	node.call("preExecute", ctx)
+	node.call("execute", ctx)
 	return node
 
 
 func _get_output(node):
-	if node.generated_bulks.is_empty():
+	var generated_bulks: Array = node.get("generated_bulks")
+	if generated_bulks.is_empty():
 		return null
-	var bulk = node.generated_bulks[0]
+	var bulk = generated_bulks[0]
 	if bulk.is_empty():
 		return null
 	return bulk[0]
