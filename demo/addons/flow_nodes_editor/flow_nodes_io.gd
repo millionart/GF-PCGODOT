@@ -7,6 +7,7 @@ class_name FlowNodeIO
 const LOAD_PROGRESS_CHUNK_SIZE := 8
 const FAST_GRAPH_LOAD_NODE_THRESHOLD := 24
 const TEMPLATE_VECTOR_EPSILON := 0.1
+const DEFAULT_COMMENT_FRAME_TINT_COLOR := Color(0.15, 0.15, 0.15, 0.5)
 const TEMPLATE_TRANSIENT_SETTINGS_PROPS := {
 	"debug_enabled": true,
 	"inspect_enabled": true,
@@ -232,10 +233,11 @@ static func _normalize_loaded_node_template(node, editor: Control) -> void:
 	if editor.has_method("normalizeDynamicNodeTemplate"):
 		editor.normalizeDynamicNodeTemplate(node)
 
-static func nodes_as_dict( nodes, frames, editor : Control, include_template_transients := true, previous_data: Dictionary = {} ) -> Dictionary:
+static func nodes_as_dict( nodes, frames, editor : Control, include_template_transients := true, previous_data = {} ) -> Dictionary:
+	var stable_previous_data: Dictionary = previous_data if typeof(previous_data) == TYPE_DICTIONARY else {}
 	var exported_node_names = {}
 
-	# Find the top-left coord of all nodes
+	# Find the top-left coord of all nodes and comment frames.
 	var min_pos = null
 	for node in nodes:
 		var pos = node.position_offset / editor.ui_scale
@@ -244,6 +246,15 @@ static func nodes_as_dict( nodes, frames, editor : Control, include_template_tra
 		else:
 			min_pos.x = minf( min_pos.x, pos.x )
 			min_pos.y = minf( min_pos.y, pos.y )
+	for frame in frames:
+		var pos = frame.position_offset / editor.ui_scale
+		if min_pos == null:
+			min_pos = pos
+		else:
+			min_pos.x = minf( min_pos.x, pos.x )
+			min_pos.y = minf( min_pos.y, pos.y )
+	if min_pos == null:
+		min_pos = Vector2.ZERO
 
 	var nodes_clean = nodes.map( func( node ):
 		exported_node_names[ node.name ] = 1
@@ -260,12 +271,12 @@ static func nodes_as_dict( nodes, frames, editor : Control, include_template_tra
 		return node_data
 	)
 	if not include_template_transients:
-		var previous_nodes := _items_by_name_from_data(previous_data, "nodes")
+		var previous_nodes := _items_by_name_from_data(stable_previous_data, "nodes")
 		for node_data in nodes_clean:
 			var previous_node = previous_nodes.get(String(node_data.get("name", "")), {})
 			if typeof(previous_node) == TYPE_DICTIONARY:
 				_preserve_close_vector2_property(node_data, previous_node, "position")
-		var node_order := _name_order_from_data(previous_data, "nodes")
+		var node_order := _name_order_from_data(stable_previous_data, "nodes")
 		if not node_order.is_empty():
 			nodes_clean.sort_custom(func(a, b):
 				return _ordered_name_key(a, node_order) < _ordered_name_key(b, node_order)
@@ -295,19 +306,19 @@ static func nodes_as_dict( nodes, frames, editor : Control, include_template_tra
 		}
 	)
 	if not include_template_transients:
-		var previous_frames := _items_by_name_from_data(previous_data, "frames")
+		var previous_frames := _items_by_name_from_data(stable_previous_data, "frames")
 		for frame_data in frames_clean:
 			var previous_frame = previous_frames.get(String(frame_data.get("name", "")), {})
 			if typeof(previous_frame) == TYPE_DICTIONARY:
 				_preserve_close_vector2_property(frame_data, previous_frame, "position")
 				_preserve_close_vector2_property(frame_data, previous_frame, "size")
-		var frame_order := _name_order_from_data(previous_data, "frames")
+		var frame_order := _name_order_from_data(stable_previous_data, "frames")
 		if not frame_order.is_empty():
 			frames_clean.sort_custom(func(a, b):
 				return _ordered_name_key(a, frame_order) < _ordered_name_key(b, frame_order)
 			)
-	if not include_template_transients and previous_data.has("min_pos") and _is_close_vector2(min_pos, previous_data.min_pos):
-		min_pos = previous_data.min_pos
+	if not include_template_transients and stable_previous_data.has("min_pos") and _is_close_vector2(min_pos, stable_previous_data.min_pos):
+		min_pos = stable_previous_data.min_pos
 
 	var data := {
 		"type" : "flow_graph_nodes",
@@ -416,7 +427,7 @@ static func create_nodes_from_dict( dict, editor : Control, paste_offset = null,
 		var in_pos = _parse_vector2( frame_data.position )
 		frame.position_offset = (in_pos + paste_offset ) * editor.ui_scale
 		frame.size = _parse_vector2( frame_data.size )
-		frame.tint_color = _parse_color( frame_data.tint_color )
+		frame.tint_color = _parse_color(frame_data.get("tint_color", DEFAULT_COMMENT_FRAME_TINT_COLOR))
 		frame.tint_color_enabled = true
 		editor.gedit.add_child(frame)
 		if editor.has_method("_setup_comment_frame"):
@@ -513,7 +524,7 @@ static func create_nodes_from_dict_with_progress(dict, editor: Control, paste_of
 		var in_pos = _parse_vector2(frame_data.position)
 		frame.position_offset = (in_pos + paste_offset) * editor.ui_scale
 		frame.size = _parse_vector2(frame_data.size)
-		frame.tint_color = _parse_color(frame_data.tint_color)
+		frame.tint_color = _parse_color(frame_data.get("tint_color", DEFAULT_COMMENT_FRAME_TINT_COLOR))
 		frame.tint_color_enabled = true
 		editor.gedit.add_child(frame)
 		if editor.has_method("_setup_comment_frame"):

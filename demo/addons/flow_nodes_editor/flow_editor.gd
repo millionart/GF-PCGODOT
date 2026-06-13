@@ -4059,7 +4059,7 @@ func addComment():
 	frame.title = "My Comments..."
 	frame.position_offset = rect.position
 	frame.size = rect.size
-	frame.tint_color = Color.DARK_SLATE_BLUE
+	frame.tint_color = FlowNodeIO.DEFAULT_COMMENT_FRAME_TINT_COLOR
 	frame.tint_color_enabled = true
 	gedit.add_child(frame)
 	_setup_comment_frame(frame)
@@ -4112,6 +4112,12 @@ func _ensure_comment_frame_controls(frame: GraphFrame) -> void:
 		"Remove",
 		"Remove Selected Nodes",
 		_on_comment_frame_remove_selected_pressed.bind(frame)
+	))
+	controls.add_child(_make_comment_frame_button(
+		"RandomColor",
+		"ColorPick",
+		"Random Comment Color",
+		_on_comment_frame_random_color_pressed.bind(frame)
 	))
 	_position_comment_frame_controls(frame)
 	if not bool(frame.get_meta("flow_comment_controls_resize_connected", false)):
@@ -4175,6 +4181,21 @@ func _on_comment_frame_remove_selected_pressed(frame: GraphFrame) -> void:
 		update_status_bar(FlowI18n.t("Removed %d nodes from comment") % removed)
 	else:
 		update_status_bar(FlowI18n.t("No nodes removed from comment"))
+
+func _on_comment_frame_random_color_pressed(frame: GraphFrame) -> void:
+	if frame == null or not is_instance_valid(frame):
+		return
+	var before_state = get_graph_snapshot()
+	frame.tint_color = _random_comment_frame_color(frame.tint_color.a)
+	frame.tint_color_enabled = true
+	queueSave()
+	record_undo_action("Random Comment Color", before_state)
+	update_status_bar(FlowI18n.t("Randomized comment color"))
+
+func _random_comment_frame_color(alpha: float) -> Color:
+	var rng := RandomNumberGenerator.new()
+	rng.randomize()
+	return Color.from_hsv(rng.randf(), rng.randf_range(0.45, 0.75), rng.randf_range(0.35, 0.7), alpha)
 
 func add_selected_nodes_to_comment_frame(frame: GraphFrame) -> int:
 	if frame == null:
@@ -4956,7 +4977,7 @@ func resync_comment_frames_from_resource() -> int:
 		var in_pos := FlowNodeIO._parse_vector2(frame_data.get("position", Vector2.ZERO))
 		frame.position_offset = (in_pos + paste_offset) * ui_scale
 		frame.size = FlowNodeIO._parse_vector2(frame_data.get("size", Vector2(320, 200)))
-		frame.tint_color = FlowNodeIO._parse_color(frame_data.get("tint_color", Color(1, 1, 1, 0.12)))
+		frame.tint_color = FlowNodeIO._parse_color(frame_data.get("tint_color", FlowNodeIO.DEFAULT_COMMENT_FRAME_TINT_COLOR))
 		frame.tint_color_enabled = true
 		gedit.add_child(frame)
 		_setup_comment_frame(frame)
