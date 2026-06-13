@@ -5,8 +5,12 @@ const BranchNode = preload("res://addons/flow_nodes_editor/nodes/branch.gd")
 const BranchSettings = preload("res://addons/flow_nodes_editor/nodes/branch_settings.gd")
 const ExpressionNode = preload("res://addons/flow_nodes_editor/nodes/expression.gd")
 const ExpressionSettings = preload("res://addons/flow_nodes_editor/nodes/expression_settings.gd")
+const OutputNode = preload("res://addons/flow_nodes_editor/nodes/output.gd")
+const OutputSettings = preload("res://addons/flow_nodes_editor/nodes/output_settings.gd")
 const PointToAttributeSetNode = preload("res://addons/flow_nodes_editor/nodes/point_to_attribute_set.gd")
 const PointToAttributeSetSettings = preload("res://addons/flow_nodes_editor/nodes/point_to_attribute_set_settings.gd")
+const RemoveAttributeNode = preload("res://addons/flow_nodes_editor/nodes/remove_attribute.gd")
+const RemoveAttributeSettings = preload("res://addons/flow_nodes_editor/nodes/remove_attribute_settings.gd")
 
 
 func _init() -> void:
@@ -15,6 +19,8 @@ func _init() -> void:
 	passed = _test_expression_reads_ue_system_attribute_name() and passed
 	passed = _test_branch_unselected_output_keeps_empty_schema() and passed
 	passed = _test_point_to_attribute_set_preserves_transforms_without_nil_return_error() and passed
+	passed = _test_remove_attribute_keep_selected_preserves_system_streams() and passed
+	passed = _test_output_accepts_empty_schema() and passed
 
 	if not passed:
 		push_error("FlowCommonNodeRegressionTest failed.")
@@ -130,6 +136,59 @@ func _test_point_to_attribute_set_preserves_transforms_without_nil_return_error(
 		and _expect_stream_size(out_data, "point_position", FlowDataScript.DataType.Vector, 1)
 		and _expect_stream_size(out_data, "point_rotation", FlowDataScript.DataType.Vector, 1)
 		and _expect_stream_size(out_data, "point_size", FlowDataScript.DataType.Vector, 1)
+	)
+	node.free()
+	return passed
+
+
+func _test_remove_attribute_keep_selected_preserves_system_streams() -> bool:
+	var in_data := FlowDataScript.Data.new()
+	in_data.addCommonStreams(1)
+	in_data.registerStream("coast_width", PackedFloat32Array([40.0]), FlowDataScript.DataType.Float)
+
+	var node = RemoveAttributeNode.new()
+	node.name = "remove_attribute"
+	node.settings = RemoveAttributeSettings.new()
+	node.settings.keep_selected_attributes = true
+	var keep_names: Array[String] = [
+		str(FlowDataScript.AttrPosition),
+		"coast_width",
+	]
+	node.settings.names = keep_names
+	node.deps = _empty_connections()
+	node.dependants = _empty_connections()
+	node.inputs = [in_data]
+
+	_execute_node(node)
+
+	var out_data = _get_output(node, 0)
+	var passed := (
+		_expect(out_data != null, "Remove Attributes should emit output")
+		and _expect_stream_size(out_data, str(FlowDataScript.AttrPosition), FlowDataScript.DataType.Vector, 1)
+		and _expect_stream_size(out_data, "coast_width", FlowDataScript.DataType.Float, 1)
+		and _expect(out_data.findStream(str(FlowDataScript.AttrRotation)) == null, "$Rotation should be removed")
+	)
+	node.free()
+	return passed
+
+
+func _test_output_accepts_empty_schema() -> bool:
+	var in_data := FlowDataScript.Data.new()
+
+	var node = OutputNode.new()
+	node.name = "output"
+	node.settings = OutputSettings.new()
+	node.settings.name = "out_val"
+	node.deps = _empty_connections()
+	node.dependants = _empty_connections()
+	node.inputs = [in_data]
+
+	_execute_node(node)
+
+	var out_data = _get_output(node, 0)
+	var passed := (
+		_expect(out_data != null, "Output should emit empty schema data")
+		and _expect(out_data.streams.size() == 0, "Output empty schema should have no streams")
 	)
 	node.free()
 	return passed
