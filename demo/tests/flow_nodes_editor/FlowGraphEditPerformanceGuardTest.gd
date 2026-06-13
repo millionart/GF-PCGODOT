@@ -12,6 +12,7 @@ func _init() -> void:
 	passed = _test_reroute_endpoint_cache_resolves_runtime_endpoint() and passed
 	passed = _test_reroute_endpoint_resolution_uses_frame_cache(source) and passed
 	passed = _test_reroute_tangent_direction_is_cached(source) and passed
+	passed = _test_drag_interaction_uses_low_latency_connection_lines(source) and passed
 
 	if not passed:
 		push_error("FlowGraphEditPerformanceGuardTest failed.")
@@ -73,6 +74,31 @@ func _test_reroute_tangent_direction_is_cached(source: String) -> bool:
 		and _expect(
 			tangent_body.contains("_reroute_tangent_reverse_cache.has(node_name)"),
 			"Reroute tangent direction should reuse cached values."
+		)
+	)
+
+
+func _test_drag_interaction_uses_low_latency_connection_lines(source: String) -> bool:
+	var get_line_body := _function_body(source, "_get_connection_line")
+	var interaction_body := _function_body(source, "_make_interaction_connection_line")
+	var make_line_body := _function_body(source, "_make_connection_line")
+	var setter_body := _function_body(source, "set_interaction_low_latency")
+	return (
+		_expect(
+			get_line_body.find("_make_interaction_connection_line") < get_line_body.find("_resolve_reroute_endpoint"),
+			"Interactive drags should use the fast connection-line path before reroute resolution."
+		)
+		and _expect(
+			interaction_body.contains("points.append(from_position)") and interaction_body.contains("points.append(to_position)"),
+			"Interactive connection-line preview should allocate only the two endpoint points."
+		)
+		and _expect(
+			not make_line_body.contains("_low_latency_connection_lines"),
+			"Full-quality connection line generation should stay independent from drag preview mode."
+		)
+		and _expect(
+			setter_body.contains("queue_redraw()"),
+			"Changing low-latency mode should redraw connection lines."
 		)
 	)
 

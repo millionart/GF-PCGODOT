@@ -24,6 +24,7 @@ var _reroute_endpoint_cache: Array[Dictionary] = []
 var _reroute_tangent_reverse_cache := {}
 var _reroute_endpoint_cache_frame := -1
 var _reroute_endpoint_cache_zoom := -1.0
+var _low_latency_connection_lines := false
 
 func _ready() -> void:
 	minimap_enabled = false
@@ -37,7 +38,15 @@ func _process(_delta: float) -> void:
 	# GraphEdit caches line points, but some zoom paths do not invalidate them.
 	set_connection_lines_curvature(get_connection_lines_curvature())
 
+func set_interaction_low_latency(enabled: bool) -> void:
+	if _low_latency_connection_lines == enabled:
+		return
+	_low_latency_connection_lines = enabled
+	queue_redraw()
+
 func _get_connection_line(from_position: Vector2, to_position: Vector2) -> PackedVector2Array:
+	if _low_latency_connection_lines:
+		return _make_interaction_connection_line(from_position, to_position)
 	var from_endpoint := _resolve_reroute_endpoint(from_position)
 	var to_endpoint := _resolve_reroute_endpoint(to_position)
 	var start_position : Vector2 = from_endpoint.position
@@ -52,6 +61,12 @@ func _get_connection_line(from_position: Vector2, to_position: Vector2) -> Packe
 		end_direction = PinDirection.OUTPUT
 
 	return _make_connection_line(start_position, end_position, start_direction, end_direction)
+
+func _make_interaction_connection_line(from_position: Vector2, to_position: Vector2) -> PackedVector2Array:
+	var points := PackedVector2Array()
+	points.append(from_position)
+	points.append(to_position)
+	return points
 
 func _resolve_reroute_endpoint(position: Vector2) -> Dictionary:
 	_ensure_reroute_endpoint_cache()

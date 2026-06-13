@@ -12,6 +12,7 @@ func _init() -> void:
 	passed = _test_set_variable_name_edit_does_not_reinspect(source) and passed
 	passed = _test_flow_inspector_text_edits_are_deferred(source) and passed
 	passed = _test_box_select_defers_selection_inspection(source) and passed
+	passed = _test_node_move_toggles_low_latency_connection_lines(source) and passed
 
 	if not passed:
 		push_error("FlowEditorHotkeyRoutingTest failed.")
@@ -95,6 +96,21 @@ func _test_box_select_defers_selection_inspection(source: String) -> bool:
 		and _expect(
 			deferred_body.contains("_inspect_graph_element(selected_nodes[0])"),
 			"Final single-node box selection should inspect once after release."
+		)
+	)
+
+
+func _test_node_move_toggles_low_latency_connection_lines(source: String) -> bool:
+	var begin_body := _function_body(source, "_on_graph_edit_begin_node_move")
+	var end_body := _function_body(source, "_on_graph_edit_end_node_move")
+	return (
+		_expect(
+			begin_body.contains("set_interaction_low_latency") and begin_body.contains("true"),
+			"Node move should enable low-latency connection lines."
+		)
+		and _expect(
+			end_body.contains("set_interaction_low_latency") and end_body.contains("false"),
+			"Node move should disable low-latency connection lines."
 		)
 	)
 

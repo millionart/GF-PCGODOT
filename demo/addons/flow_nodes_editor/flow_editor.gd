@@ -6641,9 +6641,13 @@ func set_nodes_positions(positions: Dictionary):
 	queueSave()
 
 func _on_graph_edit_begin_node_move():
+	if gedit.has_method("set_interaction_low_latency"):
+		gedit.call("set_interaction_low_latency", true)
 	drag_start_snapshot = get_graph_element_positions()
 
 func _on_graph_edit_end_node_move():
+	if gedit.has_method("set_interaction_low_latency"):
+		gedit.call("set_interaction_low_latency", false)
 	var moved_nodes_before = {}
 	var moved_nodes_after = {}
 	if not drag_start_snapshot.is_empty():
