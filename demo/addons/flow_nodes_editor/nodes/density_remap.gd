@@ -11,9 +11,8 @@ func _init():
 	}
 
 func execute( ctx : FlowData.EvaluationContext ):
-	var in_data : FlowData.Data = get_input(0)
+	var in_data : FlowData.Data = require_input(0, ctx, "Input 'In'")
 	if in_data == null:
-		setError("Input 'In' is not connected")
 		return
 	
 	var out_data : FlowData.Data = in_data.duplicate()
@@ -24,6 +23,10 @@ func execute( ctx : FlowData.EvaluationContext ):
 	densities.resize(num_elems)
 	
 	var in_container = s_density.container if s_density else null
+	var density_size : int = in_container.size() if in_container else 0
+	if density_size != 0 and density_size != num_elems and density_size != 1:
+		setError("$Density must have %d values or 1 broadcast value (got %d)" % [num_elems, density_size])
+		return
 	
 	var in_min = settings.in_min
 	var in_max = settings.in_max
@@ -36,7 +39,7 @@ func execute( ctx : FlowData.EvaluationContext ):
 		range_in = 1.0
 		
 	for i in num_elems:
-		var d = in_container[i] if in_container else 1.0
+		var d = in_container[FlowData.bcast_idx(density_size, i)] if in_container else 1.0
 		var mapped = (out_max - out_min) * (d - in_min) / range_in + out_min
 		if clamp_val:
 			mapped = clamp(mapped, min(out_min, out_max), max(out_min, out_max))

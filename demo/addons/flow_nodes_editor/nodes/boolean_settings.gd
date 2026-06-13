@@ -1,7 +1,7 @@
 @tool
 extends NodeSettings
 
-@export_group("Boolean")
+@export_group("Attribute Boolean Op")
 
 enum eOperation {
 	And,
@@ -46,7 +46,7 @@ enum eOperation {
 
 func _init():
 	super._init()
-	resource_name = "Boolean Settings"
+	resource_name = "Attribute Boolean Op Settings"
 
 func isSingleArgument() -> bool:
 	return operation == eOperation.Not

@@ -1,7 +1,7 @@
 @tool
 extends NodeSettings
 
-@export_group("Apply On Actor")
+@export_group("Apply On Object")
 
 enum eTargetMode {
 	FromNodeStream,
@@ -24,7 +24,7 @@ enum eTargetMode {
 
 func _init():
 	super._init()
-	resource_name = "Apply On Actor Settings"
+	resource_name = "Apply On Object Settings"
 
 func exposeParam(name : String) -> bool:
 	if name == "target_stream_attribute":

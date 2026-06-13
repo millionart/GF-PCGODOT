@@ -5,18 +5,18 @@ const BooleanNodeSettings = preload("res://addons/flow_nodes_editor/nodes/boolea
 
 func _init():
 	meta_node = {
-		"title" : "Boolean",
+		"title" : "Attribute Boolean Op",
 		"settings" : BooleanNodeSettings,
 		"ins" : [{ "label": "In A", "multiple_connections" : false }, { "label": "In B", "multiple_connections" : false }],
 		"outs" : [{ "label" : "Out" }],
 		"tooltip" : "Applies boolean logic between streams and writes the result as a bool stream.\nOperand B resolves in order: constant, stream in Input B, stream in Input A, bool literal.",
-		"aliases" : ["Boolean Op"],
+		"aliases" : ["Boolean", "Boolean Op"],
 		"category" : "Metadata",
 	}
 
 func getTitle() -> String:
 	var op_idx = clampi(settings.operation, 0, BooleanNodeSettings.eOperation.keys().size() - 1)
-	return "Boolean (%s)" % BooleanNodeSettings.eOperation.keys()[op_idx]
+	return "Attribute Boolean Op (%s)" % BooleanNodeSettings.eOperation.keys()[op_idx]
 
 func _is_editor_missing_input_context(ctx : FlowData.EvaluationContext) -> bool:
 	return ctx.owner == null and Engine.is_editor_hint()

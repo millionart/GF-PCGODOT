@@ -1,7 +1,7 @@
 @tool
 extends NodeSettings
 
-@export_group("Create Surface From Polygon")
+@export_group("Create Surface From Polygon2D")
 
 enum ePlane {
 	XZ,
@@ -18,4 +18,4 @@ enum ePlane {
 
 func _init():
 	super._init()
-	resource_name = "Create Surface From Polygon Settings"
+	resource_name = "Create Surface From Polygon2D Settings"

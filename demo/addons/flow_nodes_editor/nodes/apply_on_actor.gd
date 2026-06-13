@@ -5,7 +5,7 @@ const ApplyOnActorSettings = preload("res://addons/flow_nodes_editor/nodes/apply
 
 func _init():
 	meta_node = {
-		"title" : "Apply On Actor",
+		"title" : "Apply On Object",
 		"settings" : ApplyOnActorSettings,
 		"ins" : [{ "label" : "In" }],
 		"outs" : [{ "label" : "Out" }],

@@ -5,11 +5,12 @@ const CreateSurfaceFromPolygonSettings = preload("res://addons/flow_nodes_editor
 
 func _init():
 	meta_node = {
-		"title" : "Create Surface From Polygon",
+		"title" : "Create Surface From Polygon2D",
 		"settings" : CreateSurfaceFromPolygonSettings,
 		"ins" : [{ "label" : "Polygon Points" }],
 		"outs" : [{ "label" : "Surfaces" }],
 		"tooltip" : "Creates bounds-style surface points from ordered polygon point streams.\nOutput is an axis-aligned bounding-box point (rotation is always zero).\nArea uses the shoelace formula: points must be ordered, planar and non-self-intersecting.",
+		"aliases" : ["Create Surface From Polygon"],
 		"category" : "Spatial",
 	}
 

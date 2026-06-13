@@ -5,12 +5,12 @@ const ComposeVectorNodeSettings = preload("res://addons/flow_nodes_editor/nodes/
 
 func _init():
 	meta_node = {
-		"title" : "Compose Vector",
+		"title" : "Make Vector Attribute",
 		"settings" : ComposeVectorNodeSettings,
 		"ins" : [{ "label": "In" }],
 		"outs" : [{ "label" : "Out" }],
 		"tooltip" : "Composes a Vector3 attribute from float attributes or default values.\nNote: the default output attribute is 'size', which overwrites the canonical point size stream.",
-		"aliases" : ["Make Vector Attribute"],
+		"aliases" : ["Compose Vector"],
 		"category" : "Metadata",
 	}
 

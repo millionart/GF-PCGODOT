@@ -2,7 +2,7 @@
 class_name ComposeVectorNodeSettings
 extends NodeSettings
 
-@export_group("Compose Vector")
+@export_group("Make Vector Attribute")
 @export var x_attribute: String = ""
 @export var y_attribute: String = ""
 @export var z_attribute: String = ""
@@ -11,4 +11,4 @@ extends NodeSettings
 
 func _init():
 	super._init()
-	resource_name = "Compose Vector Settings"
+	resource_name = "Make Vector Attribute Settings"
