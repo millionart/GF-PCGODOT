@@ -43,7 +43,6 @@ var retired_graph_frame_counter := 0
 var internal_inspector_floating_mode := false
 var make_inspector_visible : Callable
 var search_add_node_popup: SearchAddNodePopup
-var custom_graph_grid
 var graph_edit_parent: Container
 
 # This is the default graph-node instantiated, the script contains the logic
@@ -556,7 +555,6 @@ func _activate_graph_edit_view(graph_edit: GraphEdit) -> void:
 	_connect_graph_edit_signals(gedit)
 	if _chrome_refs != null:
 		FlowEditorChrome.retarget_graph_edit(_chrome_refs, gedit)
-	_ensure_custom_graph_grid()
 	_apply_graph_grid_mode()
 	_ensure_active_analyze_panel()
 	_sync_minimap_button()
@@ -2200,7 +2198,6 @@ func _sync_minimap_button() -> void:
 
 
 func _create_dynamic_editor_ui() -> void:
-	_ensure_custom_graph_grid()
 	_apply_graph_grid_mode()
 	_setup_inline_analyze_panel()
 	_ensure_inspector()
@@ -2209,7 +2206,6 @@ func _create_dynamic_editor_ui() -> void:
 
 func _refresh_dynamic_editor_ui() -> void:
 	inspector = null
-	_ensure_custom_graph_grid()
 	_apply_graph_grid_mode()
 	_ensure_inspector()
 	if search_add_node_popup == null or not is_instance_valid(search_add_node_popup):
@@ -2234,24 +2230,6 @@ func _sync_tab_bar_from_open_tabs() -> void:
 	if tab_changed_was_connected:
 		tab_bar.tab_changed.connect(_on_tab_changed)
 	_update_tab_titles()
-
-func _ensure_custom_graph_grid() -> void:
-	if (
-		custom_graph_grid != null
-		and is_instance_valid(custom_graph_grid)
-		and custom_graph_grid.get_parent() == gedit
-	):
-		custom_graph_grid.gedit = gedit
-		return
-	custom_graph_grid = gedit.get_node_or_null("CustomGraphGrid")
-	if custom_graph_grid == null:
-		custom_graph_grid = preload("res://addons/flow_nodes_editor/custom_grid.gd").new()
-		custom_graph_grid.name = "CustomGraphGrid"
-		custom_graph_grid.gedit = gedit
-		gedit.add_child(custom_graph_grid)
-		gedit.move_child(custom_graph_grid, 0)
-	else:
-		custom_graph_grid.gedit = gedit
 
 func _ensure_inspector() -> void:
 	var splitter := $VBoxContainer/VSplitContainer
@@ -2564,8 +2542,6 @@ func _apply_graph_grid_mode():
 	if not gedit:
 		return
 	gedit.show_grid = use_native_graph_grid
-	if custom_graph_grid and is_instance_valid(custom_graph_grid):
-		custom_graph_grid.visible = not use_native_graph_grid
 
 func _on_native_graph_grid_toggled(toggled_on: bool):
 	use_native_graph_grid = toggled_on

@@ -20,6 +20,7 @@ func _init() -> void:
 	passed = _test_all_proxy_settings_have_editor_settings_paths(source) and passed
 	passed = _test_color_nodes_is_loaded_saved_and_saved_on_toggle(source) and passed
 	passed = _test_node_translation_is_loaded_saved_and_saved_on_toggle(source) and passed
+	passed = _test_native_graph_grid_uses_only_graphedit_grid(source) and passed
 
 	if not passed:
 		push_error("FlowEditorSettingsPersistenceTest failed.")
@@ -54,13 +55,26 @@ func _test_node_translation_is_loaded_saved_and_saved_on_toggle(source : String)
 	)
 
 
-func _function_body_contains(source : String, function_name : String, needle : String) -> bool:
+func _test_native_graph_grid_uses_only_graphedit_grid(source : String) -> bool:
+	var grid_body := _function_body(source, "_apply_graph_grid_mode")
+	return (
+		_expect(grid_body.contains("gedit.show_grid = use_native_graph_grid"), "Native GraphEdit Grid should control GraphEdit.show_grid.")
+		and _expect(not source.contains("custom_graph_grid"), "FlowEditor should not keep a custom grid instance.")
+		and _expect(not source.contains("CustomGraphGrid"), "FlowEditor should not create CustomGraphGrid.")
+		and _expect(not source.contains("custom_grid.gd"), "FlowEditor should not preload the custom grid script.")
+	)
+
+
+func _function_body(source : String, function_name : String) -> String:
 	var start := source.find("func " + function_name)
 	if start < 0:
-		return false
+		return ""
 	var next_func := source.find("\nfunc ", start + 1)
-	var body := source.substr(start) if next_func < 0 else source.substr(start, next_func - start)
-	return body.contains(needle)
+	return source.substr(start) if next_func < 0 else source.substr(start, next_func - start)
+
+
+func _function_body_contains(source : String, function_name : String, needle : String) -> bool:
+	return _function_body(source, function_name).contains(needle)
 
 
 func _expect(condition : bool, message : String) -> bool:
