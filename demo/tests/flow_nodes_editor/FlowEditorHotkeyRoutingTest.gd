@@ -11,6 +11,7 @@ func _init() -> void:
 	passed = _test_hotkeys_ignore_text_editing_focus(source) and passed
 	passed = _test_set_variable_name_edit_does_not_reinspect(source) and passed
 	passed = _test_flow_inspector_text_edits_are_deferred(source) and passed
+	passed = _test_box_select_defers_selection_inspection(source) and passed
 
 	if not passed:
 		push_error("FlowEditorHotkeyRoutingTest failed.")
@@ -70,6 +71,30 @@ func _test_flow_inspector_text_edits_are_deferred(source: String) -> bool:
 		and _expect(
 			flush_body.contains("_apply_flow_inspector_property_edited(String(prop_name))"),
 			"Deferred Flow inspector edits should use the normal apply path."
+		)
+	)
+
+
+func _test_box_select_defers_selection_inspection(source: String) -> bool:
+	var selected_body := _function_body(source, "_on_graph_edit_node_selected")
+	var input_body := _function_body(source, "_on_graph_edit_gui_input")
+	var deferred_body := _function_body(source, "_inspect_graph_selection_after_box_select")
+	return (
+		_expect(
+			selected_body.contains("if defer_selection_inspection_until_mouse_release:"),
+			"Box-select node_selected events should defer inspector work."
+		)
+		and _expect(
+			selected_body.contains("selection_inspection_pending_after_drag = true"),
+			"Box-select node_selected events should mark a deferred inspection."
+		)
+		and _expect(
+			input_body.contains("_track_left_box_select_drag(event)"),
+			"GraphEdit input should track box-select drag state."
+		)
+		and _expect(
+			deferred_body.contains("_inspect_graph_element(selected_nodes[0])"),
+			"Final single-node box selection should inspect once after release."
 		)
 	)
 

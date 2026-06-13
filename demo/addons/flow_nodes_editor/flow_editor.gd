@@ -118,6 +118,7 @@ const IDM_NODE_COPY : int = 302
 const IDM_NODE_DUPLICATE : int = 303
 const IDM_NODE_COPY_ID : int = 304
 const RIGHT_DRAG_PAN_THRESHOLD := 4.0
+const LEFT_BOX_SELECT_THRESHOLD := 4.0
 const COMMENT_FRAME_CONTROLS_HEIGHT := 28.0
 const COMMENT_FRAME_CONTROLS_MARGIN := 8.0
 const SAVE_DEBOUNCE_SECONDS := 0.35
@@ -172,6 +173,11 @@ var right_drag_pan_active := false
 var right_drag_pan_moved := false
 var right_drag_pan_start_position := Vector2.ZERO
 var right_drag_pan_start_scroll := Vector2.ZERO
+var left_box_select_active := false
+var left_box_select_moved := false
+var left_box_select_start_position := Vector2.ZERO
+var defer_selection_inspection_until_mouse_release := false
+var selection_inspection_pending_after_drag := false
 var suppress_next_popup_request := false
 var status_counts_dirty := true
 var status_nodes_count := 0
@@ -3878,6 +3884,49 @@ func _handle_right_mouse_pan(event: InputEvent) -> bool:
 
 	return false
 
+func _track_left_box_select_drag(event: InputEvent) -> void:
+	var evt_mouse := event as InputEventMouseButton
+	if evt_mouse and evt_mouse.button_index == MOUSE_BUTTON_LEFT:
+		if evt_mouse.pressed:
+			left_box_select_active = true
+			left_box_select_moved = false
+			left_box_select_start_position = evt_mouse.position
+			defer_selection_inspection_until_mouse_release = false
+			selection_inspection_pending_after_drag = false
+			return
+		if left_box_select_active:
+			left_box_select_active = false
+			var was_drag := left_box_select_moved or evt_mouse.position.distance_to(left_box_select_start_position) >= LEFT_BOX_SELECT_THRESHOLD
+			left_box_select_moved = false
+			defer_selection_inspection_until_mouse_release = false
+			if was_drag or selection_inspection_pending_after_drag:
+				selection_inspection_pending_after_drag = false
+				call_deferred("_inspect_graph_selection_after_box_select")
+			return
+
+	var evt_motion := event as InputEventMouseMotion
+	if evt_motion and left_box_select_active:
+		var delta := evt_motion.position - left_box_select_start_position
+		if left_box_select_moved or delta.length() >= LEFT_BOX_SELECT_THRESHOLD:
+			left_box_select_moved = true
+			defer_selection_inspection_until_mouse_release = true
+
+func _inspect_graph_selection_after_box_select() -> void:
+	var selected_nodes := getSelectedNodes()
+	var selected_frames := getSelectedFrames()
+	if selected_nodes.size() == 1 and selected_frames.is_empty():
+		_inspect_graph_element(selected_nodes[0])
+		update_status_bar()
+		return
+	if selected_frames.size() == 1 and selected_nodes.is_empty():
+		_inspect_graph_element(selected_frames[0])
+		update_status_bar()
+		return
+	inspected_node = null
+	if inspector != null:
+		inspector.edit(null)
+	update_status_bar()
+
 func _clear_suppressed_popup_request():
 	suppress_next_popup_request = false
 
@@ -3887,6 +3936,7 @@ func _on_graph_edit_gui_input(event):
 		return
 
 	var evt_mouse = event as InputEventMouseButton
+	_track_left_box_select_drag(event)
 	if evt_mouse and evt_mouse.pressed and evt_mouse.button_index == MOUSE_BUTTON_LEFT and not evt_mouse.double_click:
 		prepare_graph_for_interaction()
 	if evt_mouse and evt_mouse.pressed and evt_mouse.button_index == MOUSE_BUTTON_LEFT and evt_mouse.double_click:
@@ -4246,6 +4296,9 @@ func _fit_comment_frame_to_attached_nodes(frame: GraphFrame) -> void:
 	frame.size = rect.size
 
 func _on_graph_edit_node_selected(node):
+	if defer_selection_inspection_until_mouse_release:
+		selection_inspection_pending_after_drag = true
+		return
 	prepare_graph_for_interaction()
 	inspected_node = node
 	if inspected_node:
