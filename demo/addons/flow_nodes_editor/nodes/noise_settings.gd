@@ -2,6 +2,8 @@
 class_name NoiseNodeSettings
 extends NodeSettings
 
+const FlowSpatialNoiseRegistry = preload("res://addons/flow_nodes_editor/spatial_noise_registry.gd")
+
 @export_group("Spatial Noise")
 
 enum eMode {
@@ -18,10 +20,12 @@ enum eEdgeMask2DMode {
 	FractionalBrownian,
 }
 
-@export var mode : eMode = eMode.Perlin2D:
+@export var mode = FlowSpatialNoiseRegistry.ID_PERLIN_2D:
 	set(value):
-		value = clampi(value, 0, eMode.size() - 1)
-		mode = value
+		var next_mode_id := FlowSpatialNoiseRegistry.mode_value_to_id(value)
+		if mode == next_mode_id:
+			return
+		mode = next_mode_id
 		notify_property_list_changed()
 		emit_changed()
 
@@ -65,6 +69,11 @@ enum eEdgeMask2DMode {
 @export var transform : Transform3D = Transform3D.IDENTITY:
 	set(value):
 		transform = value
+		emit_changed()
+
+@export var algorithm_parameters : Dictionary = {}:
+	set(value):
+		algorithm_parameters = value.duplicate()
 		emit_changed()
 
 @export var voronoi_cell_randomness : float = 1.0:
@@ -111,15 +120,27 @@ func _init():
 	super._init()
 	resource_name = "Spatial Noise Settings"
 
+func _validate_property(property : Dictionary) -> void:
+	if property.name != "mode":
+		return
+	property.hint = PROPERTY_HINT_ENUM
+	property.hint_string = FlowSpatialNoiseRegistry.get_mode_hint_string()
+
+func get_mode_id() -> String:
+	return mode
+
 func exposeParam(name : String) -> bool:
+	var active_mode := get_mode_id()
+	if name == "algorithm_parameters":
+		return FlowSpatialNoiseRegistry.is_external_algorithm(active_mode)
 	if name == "iterations":
-		return mode != eMode.Voronoi2D
+		return active_mode != FlowSpatialNoiseRegistry.ID_VORONOI_2D
 	if name == "edge_mask_2d_mode" or name == "edge_blend_distance" \
 			or name == "edge_blend_curve_offset" or name == "edge_blend_curve_intensity":
-		return mode == eMode.EdgeMask2D
+		return active_mode == FlowSpatialNoiseRegistry.ID_EDGE_MASK_2D
 	if name == "voronoi_cell_randomness" or name == "voronoi_cell_id_target" \
 			or name == "voronoi_orient_samples_to_cell_edge":
-		return mode == eMode.Voronoi2D
+		return active_mode == FlowSpatialNoiseRegistry.ID_VORONOI_2D
 	if name == "tiled_voronoi_resolution" or name == "tiled_voronoi_edge_blend_cell_count":
-		return mode == eMode.Voronoi2D and tiling
+		return active_mode == FlowSpatialNoiseRegistry.ID_VORONOI_2D and tiling
 	return true

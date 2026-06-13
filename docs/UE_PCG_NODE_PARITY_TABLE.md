@@ -50,6 +50,8 @@ Close enough under Flow's current data model:
 
 `Spatial Noise` now covers UE PCG `Perlin2D`, `Caustic2D`, `Voronoi2D`, `FractionalBrownian2D`, and `EdgeMask2D`, including UE-style Value Target, Voronoi Cell ID Target, Voronoi edge orientation, tiling, and edge-mask source-bounds behavior. Flow has no UE `ExecutionSource`, so tiling and EdgeMask2D use the input `$Position` 2D bounds as the Flow data-model equivalent of UE source bounds.
 
+`Spatial Noise` also exposes a registry for plugin algorithms. These extension modes must use `PluginName/NoiseName` ids and are not counted as UE PCG parity modes.
+
 Partial matches that should not be claimed as full UE parity yet:
 
 | UE PCG node | Flow node | Main gap |

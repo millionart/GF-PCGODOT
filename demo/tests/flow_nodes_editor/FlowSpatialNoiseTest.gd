@@ -1,6 +1,7 @@
 extends SceneTree
 
 const FlowDataScript = preload("res://addons/flow_nodes_editor/flow_data.gd")
+const FlowSpatialNoiseRegistry = preload("res://addons/flow_nodes_editor/spatial_noise_registry.gd")
 const SpatialNoiseNode = preload("res://addons/flow_nodes_editor/nodes/noise.gd")
 const SpatialNoiseSettings = preload("res://addons/flow_nodes_editor/nodes/noise_settings.gd")
 
@@ -14,6 +15,9 @@ func _init() -> void:
 	passed = _test_voronoi_writes_distance_and_cell_id() and passed
 	passed = _test_voronoi_tiling_writes_output() and passed
 	passed = _test_edge_mask_uses_source_bounds() and passed
+	passed = _test_external_noise_id_requires_namespace() and passed
+	passed = _test_external_noise_algorithm_runs_from_spatial_noise() and passed
+	passed = _test_missing_external_noise_reports_error() and passed
 	passed = _test_value_target_writes_named_attribute() and passed
 	passed = _test_empty_input_emits_empty_value_target() and passed
 	passed = _test_missing_position_reports_error() and passed
@@ -190,6 +194,55 @@ func _test_edge_mask_uses_source_bounds() -> bool:
 	return passed
 
 
+func _test_external_noise_id_requires_namespace() -> bool:
+	FlowSpatialNoiseRegistry.clear_external_algorithms()
+	var missing_namespace_err := FlowSpatialNoiseRegistry.register_algorithm("CoastNoise", Callable(self, "_sample_external_constant"))
+	var valid_err := FlowSpatialNoiseRegistry.register_algorithm("MapGen/CoastNoise", Callable(self, "_sample_external_constant"))
+	var settings := SpatialNoiseSettings.new()
+	settings.mode = "MapGen/CoastNoise"
+	var mode_prop = _find_property(settings, "mode")
+	var passed := (
+		_expect(missing_namespace_err.contains("PluginName/NoiseName"), "External Spatial Noise ids should require PluginName/NoiseName")
+		and _expect(valid_err == "", "Namespaced external Spatial Noise id should register")
+		and _expect(str(mode_prop.get("hint_string", "")).contains("MapGen/CoastNoise"), "Mode dropdown should include registered external Spatial Noise")
+		and _expect(settings.exposeParam("algorithm_parameters"), "External Spatial Noise should expose algorithm_parameters")
+	)
+	FlowSpatialNoiseRegistry.clear_external_algorithms()
+	return passed
+
+
+func _test_external_noise_algorithm_runs_from_spatial_noise() -> bool:
+	FlowSpatialNoiseRegistry.clear_external_algorithms()
+	var err := FlowSpatialNoiseRegistry.register_algorithm("MapGen/ConstantNoise", Callable(self, "_sample_external_constant"))
+	if not _expect(err == "", "External Spatial Noise algorithm should register"):
+		return false
+	var node = _execute_node(_make_point_data(), func(settings):
+		settings.mode = "MapGen/ConstantNoise"
+		settings.value_target = "external_noise"
+		settings.brightness = 0.0
+		settings.contrast = 1.0
+		settings.algorithm_parameters = { "value": 0.25 }
+	)
+	var out_data = _get_output(node)
+	var passed := _expect_float_stream_values(out_data, "external_noise", PackedFloat32Array([0.25, 0.25, 0.25]), "External Spatial Noise should run through the Spatial Noise node")
+	node.free()
+	FlowSpatialNoiseRegistry.clear_external_algorithms()
+	return passed
+
+
+func _test_missing_external_noise_reports_error() -> bool:
+	FlowSpatialNoiseRegistry.clear_external_algorithms()
+	var node = _execute_node(_make_point_data(), func(settings):
+		settings.mode = "MapGen/MissingNoise"
+	)
+	var passed := (
+		_expect(node.generated_bulks.is_empty(), "Missing external Spatial Noise should not emit output")
+		and _expect(node.err.contains("MapGen/MissingNoise"), "Missing external Spatial Noise should report its id")
+	)
+	node.free()
+	return passed
+
+
 func _test_empty_input_emits_empty_value_target() -> bool:
 	var data := FlowDataScript.Data.new()
 	data.registerStream(str(FlowDataScript.AttrPosition), PackedVector3Array(), FlowDataScript.DataType.Vector)
@@ -268,6 +321,18 @@ func _empty_connections() -> Array[Dictionary]:
 	return []
 
 
+func _sample_external_constant(context : Dictionary) -> Dictionary:
+	var parameters : Dictionary = context.get("algorithm_parameters", {})
+	return { "ok": true, "value": float(parameters.get("value", 0.5)) }
+
+
+func _find_property(object : Object, property_name : String) -> Dictionary:
+	for prop in object.get_property_list():
+		if str(prop.name) == property_name:
+			return prop
+	return {}
+
+
 func _expect_float_stream_size(data, stream_name : String, expected_size : int, message : String) -> bool:
 	if not _expect(data != null, "%s: missing output" % message):
 		return false
@@ -288,6 +353,17 @@ func _expect_float_stream_range(data, stream_name : String, min_value : float, m
 	for idx in range(stream.container.size()):
 		var value := float(stream.container[idx])
 		if not _expect(value >= min_value and value <= max_value, "%s: index %d got %s" % [message, idx, value]):
+			return false
+	return true
+
+
+func _expect_float_stream_values(data, stream_name : String, expected_values : PackedFloat32Array, message : String) -> bool:
+	if not _expect_float_stream_size(data, stream_name, expected_values.size(), message):
+		return false
+	var stream = data.findStream(stream_name)
+	for idx in range(expected_values.size()):
+		var value := float(stream.container[idx])
+		if not _expect(is_equal_approx(value, expected_values[idx]), "%s: index %d expected %s, got %s" % [message, idx, expected_values[idx], value]):
 			return false
 	return true
 
