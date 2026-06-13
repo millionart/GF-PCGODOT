@@ -3359,9 +3359,8 @@ func onNodePropertyChanged( prop_name : String):
 				syncGraphOutputs()
 		elif inspected_node is FlowNodeBase and (inspected_node.node_template == "set_variable" or inspected_node.node_template == "get_variable"):
 			if inspected_node.node_template == "set_variable" and prop_name == "variable_name":
-				var variable_name := String(inspected_node.settings.variable_name).strip_edges()
-				ensureSetVariableNameUnique(inspected_node)
-				_inspect_graph_element(inspected_node)
+				ensureSetVariableNameUnique(inspected_node, false)
+				inspected_node.refreshFromSettings()
 			if prop_name == "variable_name" or prop_name == "node_color":
 				refreshVariableNodes()
 		queueSave()

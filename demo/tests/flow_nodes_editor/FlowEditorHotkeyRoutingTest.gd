@@ -9,6 +9,7 @@ func _init() -> void:
 	passed = _test_node_state_hotkeys_are_only_dispatched_from_input(source) and passed
 	passed = _test_graph_edit_hotkeys_do_not_dispatch_node_state_actions(source) and passed
 	passed = _test_hotkeys_ignore_text_editing_focus(source) and passed
+	passed = _test_set_variable_name_edit_does_not_reinspect(source) and passed
 
 	if not passed:
 		push_error("FlowEditorHotkeyRoutingTest failed.")
@@ -46,6 +47,14 @@ func _test_hotkeys_ignore_text_editing_focus(source: String) -> bool:
 	return (
 		_expect(input_body.contains("_is_text_editing_focus_active()"), "_input should ignore text editing focus.")
 		and _expect(graph_input_body.contains("_is_text_editing_focus_active()"), "GraphEdit gui_input should ignore text editing focus.")
+	)
+
+
+func _test_set_variable_name_edit_does_not_reinspect(source: String) -> bool:
+	var property_changed_body := _function_body(source, "onNodePropertyChanged")
+	return _expect(
+		not property_changed_body.contains("_inspect_graph_element(inspected_node)"),
+		"Set Variable name edits should not rebuild inspectors while text input has focus."
 	)
 
 
